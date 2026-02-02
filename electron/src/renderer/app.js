@@ -441,13 +441,14 @@ if (saveSettingsBtn) {
 const clearIndexBtn = document.getElementById('clear-index');
 if (clearIndexBtn) {
     clearIndexBtn.addEventListener('click', async () => {
-        const confirmClear = confirm('Purge Index? This deletes all embeddings but keeps your files. Search will not work until re-indexing.');
+        const confirmClear = confirm('Purge Index? This deletes all embeddings but keeps folders in the list. Your files remain untouched. Search will not work until re-indexing.');
         if (!confirmClear) return;
         
         try {
+            // Clear the index (files and embeddings) but keep folders in settings
             const response = await window.electronAPI.apiRequest('POST', '/api/index/clear');
             if (response.success) {
-                alert('Index purged.');
+                alert('Index purged. You can re-index folders by clicking "Add Folder" again.');
                 loadLibrariesTable();
             }
         } catch (error) {
@@ -465,22 +466,36 @@ if (addDirectoryBtn) {
                 const settingsResponse = await window.electronAPI.apiRequest('GET', '/api/settings');
                 if (settingsResponse.success) {
                     const currentDirs = settingsResponse.data.indexed_directories || [];
+                    let needsUpdate = false;
+                    let updatedDirs = currentDirs;
+                    
+                    // If directory not in list, add it
                     if (!currentDirs.includes(result.path)) {
+                        updatedDirs = [...currentDirs, result.path];
+                        needsUpdate = true;
+                    }
+                    
+                    // Update settings if needed
+                    if (needsUpdate) {
                         const response = await window.electronAPI.apiRequest('PUT', '/api/settings', {
-                            indexed_directories: [...currentDirs, result.path]
+                            indexed_directories: updatedDirs
                         });
-                        
-                        if (response.success) {
-                            await window.electronAPI.apiRequest('POST', '/api/index/start', {
-                                directory: result.path
-                            });
-                            loadLibrariesTable();
+                        if (!response.success) {
+                            alert('Failed to update settings: ' + (response.error || 'Unknown error'));
+                            return;
                         }
                     }
+                    
+                    // Always start indexing (even if already in list, allows re-indexing)
+                    await window.electronAPI.apiRequest('POST', '/api/index/start', {
+                        directory: result.path
+                    });
+                    loadLibrariesTable();
                 }
             }
         } catch (error) {
             console.error('Failed to add directory:', error);
+            alert('Failed to add directory: ' + error.message);
         }
     });
 }
