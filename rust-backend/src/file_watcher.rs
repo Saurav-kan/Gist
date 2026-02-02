@@ -52,6 +52,11 @@ impl FileWatcher {
                 for path in event.paths {
                     if path.is_file() {
                         if let Some(path_str) = path.to_str() {
+                            // Skip files that tend to give false positives
+                            if Indexer::should_exclude_file(path_str) {
+                                continue;
+                            }
+                            
                             if let Err(e) = indexer.index_file(path_str).await {
                                 eprintln!("Error auto-indexing {}: {}", path_str, e);
                             }

@@ -11,6 +11,12 @@ pub struct AppConfig {
     pub file_type_filters: FileTypeFilters,
     pub chunk_size: usize,
     pub auto_index: bool,
+    #[serde(default = "default_max_search_results")]
+    pub max_search_results: usize,
+}
+
+fn default_max_search_results() -> usize {
+    100
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -42,6 +48,7 @@ impl Default for AppConfig {
             },
             chunk_size: 512,
             auto_index: true,
+            max_search_results: 100,
         }
     }
 }
@@ -70,6 +77,14 @@ impl AppConfig {
             
             // Ensure model matches performance mode
             config.update_model_for_mode();
+            
+            // Set default for max_search_results if missing (for backward compatibility)
+            if config.max_search_results == 0 {
+                config.max_search_results = 100;
+            }
+            
+            // Save updated config with new fields
+            config.save().await?;
             
             Ok(config)
         } else {

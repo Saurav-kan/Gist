@@ -74,10 +74,6 @@
                 <!-- Search Page -->
                 <section id="search-page" class="page active">
                     <div class="page-header-complex">
-                        <div class="page-title">
-                            <h1>Semantic Discovery</h1>
-                        </div>
-                        
                         <div class="main-search-area">
                             <div class="main-search-input-wrapper">
                                 <span class="search-icon-large">
@@ -97,6 +93,15 @@
                                     <input type="range" id="similarity-slider" min="0" max="100" value="70" class="slider">
                                     <span class="similarity-display" id="similarity-value">70%</span>
                                 </div>
+                            </div>
+
+                            <div class="view-toggle">
+                                <button class="view-btn active" data-view="grid" title="Grid View">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                                </button>
+                                <button class="view-btn" data-view="list" title="List View">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -172,6 +177,32 @@
                             </div>
                             <button id="save-settings" class="btn-primary">Apply Settings</button>
                             <div id="settings-message" class="settings-message"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Search Settings</h2>
+                            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                                <div>
+                                    <label for="max-results-slider" class="control-label" style="display: block; margin-bottom: 0.75rem;">
+                                        Maximum Search Results
+                                    </label>
+                                    <div class="slider-wrapper">
+                                        <input 
+                                            type="range" 
+                                            id="max-results-slider" 
+                                            class="slider"
+                                            min="10" 
+                                            max="200" 
+                                            value="100" 
+                                            step="10"
+                                        />
+                                        <span id="max-results-value" class="similarity-display" style="min-width: 60px;">100</span>
+                                    </div>
+                                    <p style="margin-top: 0.75rem; font-size: 0.875rem; color: var(--text-secondary);">
+                                        Number of results to return per search query (10-200)
+                                    </p>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="section-card">

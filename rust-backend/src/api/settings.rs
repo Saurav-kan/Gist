@@ -14,6 +14,7 @@ pub struct SettingsResponse {
     file_type_filters: FileTypeFiltersResponse,
     chunk_size: usize,
     auto_index: bool,
+    max_search_results: usize,
 }
 
 #[derive(Serialize)]
@@ -31,6 +32,7 @@ pub struct UpdateSettingsRequest {
     file_type_filters: Option<FileTypeFiltersRequest>,
     chunk_size: Option<usize>,
     auto_index: Option<bool>,
+    max_search_results: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +61,7 @@ pub async fn get_settings(State(state): State<AppState>) -> Json<SettingsRespons
         },
         chunk_size: config.chunk_size,
         auto_index: config.auto_index,
+        max_search_results: config.max_search_results,
     })
 }
 
@@ -108,6 +111,11 @@ pub async fn update_settings(
 
     if let Some(val) = request.auto_index {
         config.auto_index = val;
+    }
+
+    if let Some(val) = request.max_search_results {
+        // Clamp between 10 and 200
+        config.max_search_results = val.max(10).min(200);
     }
 
     config.save().await.map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;

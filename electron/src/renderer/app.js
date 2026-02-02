@@ -148,7 +148,10 @@ async function performSearch() {
   if (resultsCount) resultsCount.textContent = 'Searching...';
   
   try {
-    const response = await window.electronAPI.apiRequest('POST', '/api/search', { query });
+    const response = await window.electronAPI.apiRequest('POST', '/api/search', { 
+      query,
+      limit: maxSearchResults  // Use configured max results
+    });
     
     if (response.success && response.data.results) {
       lastSearchResults = response.data.results;
@@ -256,11 +259,15 @@ function showError(message) {
 }
 
 // Settings functionality
+let maxSearchResults = 100; // Default value
+
 async function loadSettings() {
   try {
     const response = await window.electronAPI.apiRequest('GET', '/api/settings');
     if (response.success) {
       const settings = response.data;
+      
+      // Load performance mode
       const modeRadio = document.querySelector(`input[name="performance-mode"][value="${settings.performance_mode}"]`);
       if (modeRadio) {
         modeRadio.checked = true;
@@ -268,6 +275,19 @@ async function loadSettings() {
         document.querySelectorAll('.model-card').forEach(card => card.classList.remove('active'));
         const parentCard = modeRadio.closest('.model-card');
         if (parentCard) parentCard.classList.add('active');
+      }
+      
+      // Load max search results
+      if (settings.max_search_results) {
+        maxSearchResults = settings.max_search_results;
+        const slider = document.getElementById('max-results-slider');
+        const valueDisplay = document.getElementById('max-results-value');
+        if (slider) {
+          slider.value = maxSearchResults;
+        }
+        if (valueDisplay) {
+          valueDisplay.textContent = maxSearchResults;
+        }
       }
     }
   } catch (error) {
@@ -374,6 +394,17 @@ async function removeDirectory(path) {
 
 window.removeDirectory = removeDirectory;
 
+// Max results slider handler
+const maxResultsSlider = document.getElementById('max-results-slider');
+const maxResultsValue = document.getElementById('max-results-value');
+if (maxResultsSlider && maxResultsValue) {
+    maxResultsSlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        maxResultsValue.textContent = value;
+        maxSearchResults = value;
+    });
+}
+
 const saveSettingsBtn = document.getElementById('save-settings');
 if (saveSettingsBtn) {
     saveSettingsBtn.addEventListener('click', async () => {
@@ -383,17 +414,22 @@ if (saveSettingsBtn) {
         const selectedMode = checkedMode.value;
         const messageDiv = document.getElementById('settings-message');
         
+        // Get max search results from slider
+        const maxResults = maxResultsSlider ? parseInt(maxResultsSlider.value) : maxSearchResults;
+        
         try {
             const response = await window.electronAPI.apiRequest('PUT', '/api/settings', {
-            performance_mode: selectedMode
+                performance_mode: selectedMode,
+                max_search_results: maxResults
             });
             
             if (response.success) {
-            messageDiv.textContent = 'Settings applied! Backend will adapt on next index.';
-            messageDiv.style.color = 'var(--accent-primary)';
+                maxSearchResults = maxResults; // Update local variable
+                messageDiv.textContent = 'Settings applied! Backend will adapt on next index.';
+                messageDiv.style.color = 'var(--accent-primary)';
             } else {
-            messageDiv.textContent = 'Error: ' + (response.error || 'Unknown error');
-            messageDiv.style.color = '#dc2626';
+                messageDiv.textContent = 'Error: ' + (response.error || 'Unknown error');
+                messageDiv.style.color = '#dc2626';
             }
         } catch (error) {
             messageDiv.textContent = 'Connection error: ' + error.message;

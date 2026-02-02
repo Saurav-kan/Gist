@@ -50,6 +50,11 @@ impl Indexer {
             if entry.file_type().is_file() {
                 let file_path = entry.path().to_string_lossy().to_string();
                 
+                // Skip files that tend to give false positives
+                if Self::should_exclude_file(&file_path) {
+                    continue;
+                }
+                
                 if self.parser_registry.can_parse(&file_path) {
                     if let Err(e) = self.index_file(&file_path).await {
                         eprintln!("Error indexing {}: {}", file_path, e);
@@ -139,5 +144,26 @@ impl Indexer {
 
     pub async fn is_indexing(&self) -> bool {
         *self.is_indexing.read().await
+    }
+
+    /// Check if a file should be excluded from indexing due to high false positive rates
+    pub fn should_exclude_file(file_path: &str) -> bool {
+        let path = PathBuf::from(file_path);
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        
+        // Exclude common config/boilerplate files that cause false positives
+        let excluded_patterns = [
+            "config.js",
+            "index.html",
+            "aca.conf.ini",
+        ];
+        
+        excluded_patterns.iter().any(|pattern| {
+            file_name == pattern.to_lowercase()
+        })
     }
 }
