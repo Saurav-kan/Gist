@@ -1,0 +1,16 @@
+# Electron
+electron/node_modules/
+electron/dist/
+electron/*.log
+
+# Rust
+rust-backend/target/
+rust-backend/Cargo.lock
+rust-backend/*.log
+
+# Config and data
+.nlpfileexplorer/
+
+# OS
+.DS_Store
+Thumbs.db

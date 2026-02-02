@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vector Explorer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="app-logo">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    <span>CognitiveDrive</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-item active" data-page="search" id="nav-search">
+                    <div class="nav-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    </div>
+                    <span class="nav-label">Search Library</span>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-settings">
+                    <div class="nav-item" data-page="indexing" id="nav-settings">
+                        <div class="nav-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        </div>
+                        <span class="nav-label">Settings</span>
+                    </div>
+                </div>
+                <div class="indexing-status">
+                    <div class="status-label">System Status</div>
+                    <div class="progress-bar-mini">
+                        <div class="progress-fill-mini" id="sidebar-progress" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text" id="sidebar-progress-text">Connecting...</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-wrapper">
+            <div class="drag-bar">
+                <div class="drag-indication">Vector Explorer — AI Drive</div>
+                <div class="window-controls-native">
+                    <button class="window-control minimize" title="Minimize">–</button>
+                    <button class="window-control maximize" title="Maximize">□</button>
+                    <button class="window-control close" title="Close">×</button>
+                </div>
+            </div>
+            <!-- App Header -->
+            <header class="app-header">
+                <div class="header-left">
+                    <div class="breadcrumb-nav">
+                        <span class="breadcrumb-item">Files</span>
+                        <span class="breadcrumb-separator">/</span>
+                        <span class="breadcrumb-item active" id="current-folder">Home</span>
+                    </div>
+                </div>
+
+                <div class="header-right">
+                </div>
+            </header>
+
+            <!-- Scrollable Content -->
+            <div class="main-content">
+                <!-- Search Page -->
+                <section id="search-page" class="page active">
+                    <div class="page-header-complex">
+                        <div class="page-title">
+                            <h1>Semantic Discovery</h1>
+                        </div>
+                        
+                        <div class="main-search-area">
+                            <div class="main-search-input-wrapper">
+                                <span class="search-icon-large">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                </span>
+                                <input 
+                                    type="text" 
+                                    id="search-input" 
+                                    placeholder="Search documents by concept, topic, or phrase..."
+                                    autocomplete="off"
+                                />
+                            </div>
+                            
+                            <div class="threshold-control">
+                                <label class="control-label">Recall Threshold</label>
+                                <div class="slider-wrapper">
+                                    <input type="range" id="similarity-slider" min="0" max="100" value="70" class="slider">
+                                    <span class="similarity-display" id="similarity-value">70%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="results-container">
+                        <div id="results-list" class="results-grid"></div>
+                        
+                        <div id="initial-state" class="empty-state">
+                            <div class="empty-icon">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                            </div>
+                            <h3>Search your library</h3>
+                            <p>Enter a query above to discover relevant documents using AI.</p>
+                        </div>
+
+                        <div id="loading-state" class="empty-state" style="display: none;">
+                            <div class="empty-icon">...</div>
+                            <h3>Searching...</h3>
+                            <p>Analyzing semantic patterns in your library</p>
+                        </div>
+                        
+                        <div id="no-results" class="no-results" style="display: none;">
+                            <div class="empty-state">
+                                <div class="empty-icon">
+                                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10l4 4m0-4l-4 4"/></svg>
+                                </div>
+                                <h2>No matches found</h2>
+                                <p>Try lowering the recall threshold or using broader terms.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Indexing/Settings Page -->
+                <section id="indexing-page" class="page">
+                    <div class="page-header">
+                        <div class="page-title">
+                            <h1>Indexing Management</h1>
+                            <p>Manage your local search library and AI models</p>
+                        </div>
+                    </div>
+
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Performance Model</h2>
+                            <div class="model-cards">
+                                <div class="model-card active" data-model="lightweight">
+                                    <div class="model-header">
+                                        <div class="model-title">
+                                            <input type="radio" name="performance-mode" value="lightweight" checked style="display:none">
+                                            Lightweight Mode
+                                        </div>
+                                        <span class="model-badge">Fast</span>
+                                    </div>
+                                    <div class="model-details">
+                                        <p><strong>Model:</strong> all-minilm (384 dims)</p>
+                                        <p>Optimized for speed and low RAM usage.</p>
+                                    </div>
+                                </div>
+                                <div class="model-card" data-model="normal">
+                                    <div class="model-header">
+                                        <div class="model-title">
+                                            <input type="radio" name="performance-mode" value="normal" style="display:none">
+                                            Advanced Mode
+                                        </div>
+                                        <span class="model-badge">Deep</span>
+                                    </div>
+                                    <div class="model-details">
+                                        <p><strong>Model:</strong> embeddinggemma (1024 dims)</p>
+                                        <p>Highest accuracy for complex semantic queries.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <button id="save-settings" class="btn-primary">Apply Settings</button>
+                            <div id="settings-message" class="settings-message"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Indexed Folders</h2>
+                            <div class="table-container">
+                                <table class="modern-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Path</th>
+                                            <th>File Count</th>
+                                            <th>Last Synced</th>
+                                            <th>Status</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="libraries-table-body">
+                                        <tr>
+                                            <td colspan="5" style="text-align: center; padding: 2rem;">No folders added yet</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div style="display: flex; gap: 1rem;">
+                                <button id="add-directory" class="btn-primary">Add Folder</button>
+                                <button id="clear-index" class="btn-danger">Purge Index</button>
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>System Info</h2>
+                            <div id="system-info" style="color: var(--text-secondary); line-height: 1.6;">
+                                Loading hardware specs...
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
