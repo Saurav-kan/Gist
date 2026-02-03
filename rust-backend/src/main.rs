@@ -5,6 +5,7 @@ mod file_watcher;
 mod hnsw_index;
 mod indexer;
 mod parsers;
+mod query_parser;
 mod search;
 mod storage;
 
@@ -91,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/settings", put(api::settings::update_settings))
         .route("/api/system-info", get(api::system_info::get_system_info))
         .route("/api/search", post(api::search::search_files))
+        .route("/api/search/parse", post(api::parse::parse_query))
         .route("/api/files", get(api::files::list_files))
         .route("/api/files/browse", get(api::files_browser::browse_directory))
         .route("/api/files/special-folders", get(api::files_browser::get_special_folders))

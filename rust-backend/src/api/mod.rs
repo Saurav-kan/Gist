@@ -4,3 +4,4 @@ pub mod search;
 pub mod index;
 pub mod files;
 pub mod files_browser;
+pub mod parse;

@@ -53,10 +53,27 @@ fn adjust_similarity_for_file_length(
     adjusted.max(0.0).min(1.0)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterOptions {
+    pub date_range: Option<DateRange>,
+    pub file_types: Option<Vec<String>>,
+    pub folder_paths: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DateRange {
+    pub start: Option<i64>, // Unix timestamp
+    pub end: Option<i64>,
+    pub month: Option<u32>, // 1-12
+    pub year: Option<i32>,
+}
+
 #[derive(Deserialize)]
 pub struct SearchRequest {
     query: String,
     limit: Option<usize>,
+    #[serde(default)]
+    filters: Option<FilterOptions>,
 }
 
 #[derive(Serialize)]
@@ -172,6 +189,11 @@ pub async fn search_files(
         results = all_results;
     }
 
+    // Apply filters if provided
+    if let Some(ref filters) = request.filters {
+        results = apply_filters(results, filters);
+    }
+
     // Sort by similarity (descending)
     results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -192,4 +214,85 @@ pub async fn search_files(
     Ok(Json(SearchResponse {
         results: search_results,
     }))
+}
+
+// Apply filters to search results
+fn apply_filters(
+    results: Vec<(crate::storage::FileMetadata, f32)>,
+    filters: &FilterOptions,
+) -> Vec<(crate::storage::FileMetadata, f32)> {
+    results
+        .into_iter()
+        .filter(|(metadata, _)| {
+            // Apply date filter
+            if let Some(ref date_range) = filters.date_range {
+                if !matches_date_range(metadata.modified_time, date_range) {
+                    return false;
+                }
+            }
+
+            // Apply file type filter
+            if let Some(ref file_types) = filters.file_types {
+                let file_ext = std::path::Path::new(&metadata.file_path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                
+                if !file_types.iter().any(|ft| file_ext == *ft) {
+                    return false;
+                }
+            }
+
+            // Apply folder path filter
+            if let Some(ref folder_paths) = filters.folder_paths {
+                let file_path_lower = metadata.file_path.to_lowercase();
+                let matches_folder = folder_paths.iter().any(|folder| {
+                    let folder_lower = folder.to_lowercase();
+                    // Check if file path contains folder name (case-insensitive)
+                    file_path_lower.contains(&folder_lower)
+                });
+                
+                if !matches_folder {
+                    return false;
+                }
+            }
+
+            true
+        })
+        .collect()
+}
+
+/// Check if a timestamp matches the date range filter
+fn matches_date_range(timestamp: i64, date_range: &DateRange) -> bool {
+    // If start/end timestamps are provided, use those
+    if let Some(start) = date_range.start {
+        if timestamp < start {
+            return false;
+        }
+    }
+    if let Some(end) = date_range.end {
+        if timestamp > end {
+            return false;
+        }
+    }
+
+    // If month/year are specified, check those
+    if date_range.month.is_some() || date_range.year.is_some() {
+        use chrono::{Local, Datelike, TimeZone};
+        if let Some(dt) = Local.timestamp_opt(timestamp, 0).single() {
+            if let Some(month) = date_range.month {
+                if dt.month() != month {
+                    return false;
+                }
+            }
+            if let Some(year) = date_range.year {
+                if dt.year() != year {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
 }

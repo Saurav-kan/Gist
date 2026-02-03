@@ -29,6 +29,8 @@ sysinfo = "0.30"
 winapi = { version = "0.3", features = ["sysinfoapi", "winnt"] }
 hnsw = "0.11"
 rand = "0.8"
+chrono = "0.4"
+regex = "1.10"
 
 [profile.release]
 opt-level = 3

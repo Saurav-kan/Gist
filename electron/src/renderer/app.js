@@ -379,6 +379,9 @@ if (searchInput) {
     });
 }
 
+// Current active filters
+let activeFilters = null;
+
 async function performSearch() {
   const query = searchInput.value.trim();
   if (!query) return;
@@ -394,9 +397,31 @@ async function performSearch() {
   if (resultsCount) resultsCount.textContent = 'Searching...';
   
   try {
+    // First, parse the query to extract filters
+    let parsedQuery = null;
+    try {
+      const parseResponse = await window.electronAPI.apiRequest('POST', '/api/search/parse', {
+        query
+      });
+      if (parseResponse.success && parseResponse.data) {
+        parsedQuery = parseResponse.data;
+        activeFilters = parsedQuery.filters;
+        // Display filters in UI
+        displayFilters(parsedQuery.filters);
+      }
+    } catch (parseError) {
+      console.warn('Failed to parse query:', parseError);
+      // Continue with original query if parsing fails
+      activeFilters = null;
+      displayFilters(null);
+    }
+    
+    // Perform search with parsed query and filters
+    const searchQuery = parsedQuery ? parsedQuery.query : query;
     const response = await window.electronAPI.apiRequest('POST', '/api/search', { 
-      query,
-      limit: maxSearchResults  // Use configured max results
+      query: searchQuery,
+      limit: maxSearchResults,
+      filters: activeFilters
     });
     
     if (response.success && response.data.results) {
@@ -420,6 +445,112 @@ async function performSearch() {
     if (loadingState) loadingState.style.display = 'none';
     if (initialState) initialState.style.display = 'flex';
   }
+}
+
+// Display active filters as chips
+function displayFilters(filters) {
+  const filterContainer = document.getElementById('filter-container');
+  const filterChips = document.getElementById('filter-chips');
+  
+  if (!filterContainer || !filterChips) return;
+  
+  if (!filters || (!filters.date_range && !filters.file_types && !filters.folder_paths)) {
+    filterContainer.style.display = 'none';
+    filterChips.innerHTML = '';
+    return;
+  }
+  
+  filterContainer.style.display = 'flex';
+  filterChips.innerHTML = '';
+  
+  // Date filter chip
+  if (filters.date_range) {
+    const dateRange = filters.date_range;
+    let dateText = '';
+    if (dateRange.month && dateRange.year) {
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+      dateText = `${monthNames[dateRange.month - 1]} ${dateRange.year}`;
+    } else if (dateRange.year) {
+      dateText = `${dateRange.year}`;
+    } else if (dateRange.start && dateRange.end) {
+      const startDate = new Date(dateRange.start * 1000);
+      const endDate = new Date(dateRange.end * 1000);
+      dateText = `${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`;
+    }
+    
+    if (dateText) {
+      const chip = createFilterChip('date', dateText, () => {
+        if (activeFilters) {
+          activeFilters.date_range = null;
+          displayFilters(activeFilters);
+          performSearch();
+        }
+      });
+      filterChips.appendChild(chip);
+    }
+  }
+  
+  // File type filter chips
+  if (filters.file_types && filters.file_types.length > 0) {
+    filters.file_types.forEach(fileType => {
+      const chip = createFilterChip('file-type', fileType.toUpperCase(), () => {
+        if (activeFilters && activeFilters.file_types) {
+          activeFilters.file_types = activeFilters.file_types.filter(ft => ft !== fileType);
+          if (activeFilters.file_types.length === 0) {
+            activeFilters.file_types = null;
+          }
+          displayFilters(activeFilters);
+          performSearch();
+        }
+      });
+      filterChips.appendChild(chip);
+    });
+  }
+  
+  // Folder path filter chips
+  if (filters.folder_paths && filters.folder_paths.length > 0) {
+    filters.folder_paths.forEach(folder => {
+      const chip = createFilterChip('folder', folder, () => {
+        if (activeFilters && activeFilters.folder_paths) {
+          activeFilters.folder_paths = activeFilters.folder_paths.filter(fp => fp !== folder);
+          if (activeFilters.folder_paths.length === 0) {
+            activeFilters.folder_paths = null;
+          }
+          displayFilters(activeFilters);
+          performSearch();
+        }
+      });
+      filterChips.appendChild(chip);
+    });
+  }
+}
+
+// Create a filter chip element
+function createFilterChip(type, label, onRemove) {
+  const chip = document.createElement('div');
+  chip.className = `filter-chip filter-chip-${type}`;
+  chip.innerHTML = `
+    <span class="filter-chip-label">${escapeHtml(label)}</span>
+    <button class="filter-chip-remove" title="Remove filter">×</button>
+  `;
+  
+  chip.querySelector('.filter-chip-remove').addEventListener('click', (e) => {
+    e.stopPropagation();
+    onRemove();
+  });
+  
+  return chip;
+}
+
+// Clear all filters
+const clearFiltersBtn = document.getElementById('clear-filters-btn');
+if (clearFiltersBtn) {
+  clearFiltersBtn.addEventListener('click', () => {
+    activeFilters = null;
+    displayFilters(null);
+    performSearch();
+  });
 }
 
 async function displayResults(results) {
