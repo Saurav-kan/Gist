@@ -114,6 +114,6 @@ async fn main() -> anyhow::Result<()> {
 async fn health_check() -> Result<Json<serde_json::Value>, StatusCode> {
     Ok(Json(serde_json::json!({
         "status": "ok",
-        "service": "nlp-file-explorer-backend"
+                "service": "gist-vector-search-backend"
     })))
 }

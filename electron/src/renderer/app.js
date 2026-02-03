@@ -26,7 +26,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     // Update breadcrumb
     const currentFolder = document.getElementById('current-folder');
     if (currentFolder) {
-        currentFolder.textContent = page.charAt(0).toUpperCase() + page.slice(1);
+        currentFolder.textContent = page.charAt(0).toUpperCase() + page.slice(1).replace('-', ' ');
     }
     
     // Load data when switching pages
@@ -34,41 +34,155 @@ document.querySelectorAll('.nav-item').forEach(item => {
       loadSettings();
       loadSystemInfo();
       loadLibrariesTable();
+    } else if (page === 'desktop' || page === 'downloads' || page === 'documents' || page === 'other-files') {
+      // Load folder page - ensure special folders are loaded first
+      if (Object.keys(specialFolders).length === 0) {
+        loadSpecialFolders().then(() => loadFolderPage(page));
+      } else {
+        loadFolderPage(page);
+      }
     }
   });
 });
 
-// View Toggle (List/Grid)
-let currentView = 'grid';
-document.querySelectorAll('.view-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    currentView = btn.dataset.view;
-    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    
-    const resultsList = document.getElementById('results-list');
-    if (!resultsList) return;
+// Universal View Preferences (stored in localStorage)
+let viewPreferences = {
+  view: 'grid', // 'grid' or 'list'
+  size: 'medium' // 'small', 'medium', or 'large'
+};
 
-    if (currentView === 'list') {
-      resultsList.classList.add('list-view');
-      // For list view, we might want to change the grid layout to single column
-      resultsList.style.gridTemplateColumns = '1fr';
-    } else {
-      resultsList.classList.remove('list-view');
-      resultsList.style.gridTemplateColumns = '';
+// Load view preferences from localStorage
+function loadViewPreferences() {
+  try {
+    const stored = localStorage.getItem('viewPreferences');
+    if (stored) {
+      viewPreferences = JSON.parse(stored);
     }
-    
-    // Re-render results with new view if needed
-    if (lastSearchResults.length > 0) {
-      displayResults(lastSearchResults);
+  } catch (error) {
+    console.error('Failed to load view preferences:', error);
+  }
+}
+
+// Save view preferences to localStorage
+function saveViewPreferences() {
+  try {
+    localStorage.setItem('viewPreferences', JSON.stringify(viewPreferences));
+  } catch (error) {
+    console.error('Failed to save view preferences:', error);
+  }
+}
+
+// Apply view preferences to all file lists
+function applyViewPreferences() {
+  // Update all view buttons
+  document.querySelectorAll('.view-btn').forEach(btn => {
+    if (btn.dataset.view === viewPreferences.view) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
     }
   });
+  
+  // Update all size selects
+  document.querySelectorAll('.view-size-select').forEach(select => {
+    select.value = viewPreferences.size;
+  });
+  
+  // Apply to all file lists
+  applyViewToAllLists();
+}
+
+// Apply current view settings to all file lists
+function applyViewToAllLists() {
+  const allFileLists = [
+    document.getElementById('results-list'),
+    document.getElementById('desktop-file-list'),
+    document.getElementById('downloads-file-list'),
+    document.getElementById('documents-file-list'),
+    document.getElementById('other-files-file-list')
+  ].filter(el => el !== null);
+  
+  allFileLists.forEach(list => {
+    // Apply view type
+    if (viewPreferences.view === 'list') {
+      list.classList.add('list-view');
+      list.classList.remove('grid-view');
+    } else {
+      list.classList.add('grid-view');
+      list.classList.remove('list-view');
+    }
+    
+    // Apply size
+    list.classList.remove('size-small', 'size-medium', 'size-large');
+    list.classList.add(`size-${viewPreferences.size}`);
+    
+    // Update grid template columns for list view
+    if (viewPreferences.view === 'list') {
+      list.style.gridTemplateColumns = '1fr';
+    } else {
+      // Grid view - adjust based on size
+      const minWidths = {
+        small: '120px',
+        medium: '180px',
+        large: '240px'
+      };
+      list.style.gridTemplateColumns = `repeat(auto-fill, minmax(${minWidths[viewPreferences.size]}, 1fr))`;
+    }
+  });
+  
+  // Re-render current page if needed
+  const activePage = document.querySelector('.page.active');
+  if (activePage) {
+    const pageId = activePage.id;
+    if (pageId === 'search-page' && lastSearchResults.length > 0) {
+      displayResults(lastSearchResults);
+    } else if (['desktop-page', 'downloads-page', 'documents-page', 'other-files-page'].includes(pageId)) {
+      // Reload current folder page
+      const pageType = pageId.replace('-page', '');
+      loadFolderPage(pageType);
+    }
+  }
+}
+
+// View Toggle (List/Grid) - Universal
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.view-btn')) {
+    const btn = e.target.closest('.view-btn');
+    viewPreferences.view = btn.dataset.view;
+    
+    // Update all view buttons
+    document.querySelectorAll('.view-btn').forEach(b => {
+      if (b.dataset.view === viewPreferences.view) {
+        b.classList.add('active');
+      } else {
+        b.classList.remove('active');
+      }
+    });
+    
+    saveViewPreferences();
+    applyViewToAllLists();
+  }
+});
+
+// Size Select - Universal
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('view-size-select')) {
+    viewPreferences.size = e.target.value;
+    
+    // Update all size selects
+    document.querySelectorAll('.view-size-select').forEach(select => {
+      select.value = viewPreferences.size;
+    });
+    
+    saveViewPreferences();
+    applyViewToAllLists();
+  }
 });
 
 // Similarity Slider
 const similaritySlider = document.getElementById('similarity-slider');
 const similarityValue = document.getElementById('similarity-value');
-let similarityThreshold = 70;
+let similarityThreshold = 30; // Lower default threshold for better results
 
 if (similaritySlider) {
     similaritySlider.addEventListener('input', (e) => {
@@ -119,6 +233,120 @@ function sortResults(sortBy) {
   displayResults(sorted);
 }
 
+// Search History functionality
+let searchHistory = [];
+
+// Load search history from localStorage
+function loadSearchHistory() {
+    try {
+        const stored = localStorage.getItem('searchHistory');
+        if (stored) {
+            searchHistory = JSON.parse(stored);
+        }
+    } catch (error) {
+        console.error('Failed to load search history:', error);
+    }
+}
+
+// Save search history to localStorage
+function saveSearchHistory() {
+    try {
+        localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
+    } catch (error) {
+        console.error('Failed to save search history:', error);
+    }
+}
+
+// Add to search history
+function addToSearchHistory(query) {
+    if (!query || query.trim().length === 0) return;
+    
+    // Remove if already exists
+    searchHistory = searchHistory.filter(q => q.toLowerCase() !== query.toLowerCase());
+    
+    // Add to front
+    searchHistory.unshift(query.trim());
+    
+    // Keep only last 10
+    searchHistory = searchHistory.slice(0, 10);
+    
+    saveSearchHistory();
+}
+
+// Remove from search history
+function removeFromSearchHistory(query) {
+    searchHistory = searchHistory.filter(q => q.toLowerCase() !== query.toLowerCase());
+    saveSearchHistory();
+    // Refresh the dropdown if it's visible
+    if (document.getElementById('search-history-dropdown')?.style.display === 'block') {
+        showSearchHistory();
+    }
+}
+
+// Show search history dropdown
+function showSearchHistory() {
+    if (!searchInput || searchHistory.length === 0) return;
+    
+    // Create dropdown if it doesn't exist
+    let dropdown = document.getElementById('search-history-dropdown');
+    if (!dropdown) {
+        dropdown = document.createElement('div');
+        dropdown.id = 'search-history-dropdown';
+        dropdown.className = 'search-history-dropdown';
+        // Append to the search input wrapper (parent element)
+        const wrapper = searchInput.closest('.main-search-input-wrapper') || searchInput.parentElement;
+        if (wrapper) {
+            wrapper.style.position = 'relative';
+            wrapper.appendChild(dropdown);
+        }
+    }
+    
+    dropdown.innerHTML = searchHistory.map((query, idx) => `
+        <div class="history-item" data-query="${escapeHtml(query)}">
+            <div class="history-item-content">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <span>${escapeHtml(query)}</span>
+            </div>
+            <button class="history-item-delete" data-query="${escapeHtml(query)}" title="Remove from history">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+    `).join('');
+    
+    dropdown.style.display = 'block';
+    
+    // Add click handlers for selecting history item
+    dropdown.querySelectorAll('.history-item-content').forEach(content => {
+        content.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const item = content.closest('.history-item');
+            const query = item.dataset.query;
+            searchInput.value = query;
+            dropdown.style.display = 'none';
+            performSearch();
+        });
+    });
+    
+    // Add click handlers for delete buttons
+    dropdown.querySelectorAll('.history-item-delete').forEach(deleteBtn => {
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const query = deleteBtn.dataset.query;
+            removeFromSearchHistory(query);
+        });
+    });
+}
+
+// Hide search history dropdown
+function hideSearchHistory() {
+    const dropdown = document.getElementById('search-history-dropdown');
+    if (dropdown) {
+        setTimeout(() => {
+            dropdown.style.display = 'none';
+        }, 200);
+    }
+}
+
 // Search functionality
 const searchInput = document.getElementById('search-input');
 const resultsList = document.getElementById('results-list');
@@ -132,6 +360,21 @@ if (searchInput) {
     searchInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             performSearch();
+            hideSearchHistory();
+        }
+    });
+    
+    searchInput.addEventListener('focus', () => {
+        showSearchHistory();
+    });
+    
+    searchInput.addEventListener('blur', () => {
+        hideSearchHistory();
+    });
+    
+    searchInput.addEventListener('input', () => {
+        if (searchInput.value.trim().length === 0) {
+            hideSearchHistory();
         }
     });
 }
@@ -158,6 +401,13 @@ async function performSearch() {
     
     if (response.success && response.data.results) {
       lastSearchResults = response.data.results;
+      console.log('Search results received:', lastSearchResults.length, 'results');
+      if (lastSearchResults.length > 0) {
+        console.log('Sample similarities:', lastSearchResults.slice(0, 5).map(r => ({
+          file: r.file_name,
+          similarity: (r.similarity * 100).toFixed(1) + '%'
+        })));
+      }
       if (resultsCount) resultsCount.textContent = `Found ${lastSearchResults.length} relevant documents`;
       filterResultsBySimilarity();
     } else {
@@ -189,14 +439,16 @@ async function displayResults(results) {
   resultsList.style.display = 'grid';
   resultsList.innerHTML = '';
   
+  // Apply view preferences
+  applyViewToElement(resultsList);
+  
   for (const result of results) {
     const item = document.createElement('div');
     item.className = 'result-item';
     
     const filePath = result.file_path;
     const fileName = result.file_name || filePath.split(/[\\/]/).pop();
-    const fileExt = getFileExtension(fileName);
-    const fileIcon = fileExt.toUpperCase().substring(0, 3);
+    const fileIconData = getFileIcon(fileName);
     
     // Get file preview/description
     let description = '';
@@ -213,7 +465,7 @@ async function displayResults(results) {
     
     item.innerHTML = `
       <div class="result-header">
-        <div class="file-icon-wrapper">${fileIcon}</div>
+        <div class="file-icon-wrapper" data-file-type="${fileIconData.category}">${fileIconData.icon}</div>
         <div class="file-info">
           <div class="file-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
           ${description ? `<div class="file-preview">${escapeHtml(description)}</div>` : ''}
@@ -237,6 +489,114 @@ function getFileExtension(filename) {
   if (!filename) return 'file';
   const parts = filename.split('.');
   return parts.length > 1 ? parts[parts.length - 1] : 'file';
+}
+
+// Get appropriate icon SVG and file type category for file type
+function getFileIcon(filename, isDirectory = false) {
+  if (isDirectory) {
+    return {
+      icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
+      category: 'folder'
+    };
+  }
+  
+  const ext = getFileExtension(filename).toLowerCase();
+  
+  // PDF - Red
+  if (ext === 'pdf') {
+    return {
+      icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`,
+      category: 'pdf'
+    };
+  }
+  
+  // DOC, DOCX, XLS - Blue
+  if (['doc', 'docx', 'xls'].includes(ext)) {
+    return {
+      icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>`,
+      category: 'office'
+    };
+  }
+  
+  // TXT - Grey
+  if (ext === 'txt') {
+    return {
+      icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>`,
+      category: 'text'
+    };
+  }
+  
+  // Other document types
+  const documentTypes = {
+    'xlsx': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>`,
+    'rtf': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>`,
+  };
+  
+  // Code/Text files
+  const codeTypes = {
+    'js': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'ts': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'jsx': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'tsx': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'py': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'java': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'cpp': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'c': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'rs': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'go': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'html': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'css': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'json': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'xml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'yaml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'yml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
+    'md': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>`,
+  };
+  
+  // Image types
+  const imageTypes = {
+    'jpg': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+    'jpeg': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+    'png': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+    'gif': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+    'svg': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+    'webp': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+    'bmp': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+    'ico': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+  };
+  
+  // Media types
+  const mediaTypes = {
+    'mp4': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
+    'avi': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
+    'mov': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
+    'mp3': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`,
+    'wav': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`,
+    'flac': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`,
+    'ogg': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`,
+  };
+  
+  // Archive types
+  const archiveTypes = {
+    'zip': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`,
+    'rar': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`,
+    '7z': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`,
+    'tar': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`,
+    'gz': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`,
+  };
+  
+  // Check each category
+  if (documentTypes[ext]) return { icon: documentTypes[ext], category: 'document' };
+  if (codeTypes[ext]) return { icon: codeTypes[ext], category: 'code' };
+  if (imageTypes[ext]) return { icon: imageTypes[ext], category: 'image' };
+  if (mediaTypes[ext]) return { icon: mediaTypes[ext], category: 'media' };
+  if (archiveTypes[ext]) return { icon: archiveTypes[ext], category: 'archive' };
+  
+  // Default file icon
+  return {
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
+    category: 'file'
+  };
 }
 
 async function openFile(filePath) {
@@ -587,6 +947,174 @@ async function loadSpecialFolders() {
     }
 }
 
+// Load folder page based on page type
+async function loadFolderPage(pageType) {
+    let folderPath = null;
+    let fileListId = null;
+    
+    switch(pageType) {
+        case 'desktop':
+            folderPath = specialFolders.desktop;
+            fileListId = 'desktop-file-list';
+            break;
+        case 'downloads':
+            folderPath = specialFolders.downloads;
+            fileListId = 'downloads-file-list';
+            break;
+        case 'documents':
+            folderPath = specialFolders.documents;
+            fileListId = 'documents-file-list';
+            break;
+        case 'other-files':
+            folderPath = specialFolders.home;
+            fileListId = 'other-files-file-list';
+            break;
+    }
+    
+    if (!folderPath) {
+        // Load special folders if not already loaded
+        await loadSpecialFolders();
+        switch(pageType) {
+            case 'desktop':
+                folderPath = specialFolders.desktop;
+                break;
+            case 'downloads':
+                folderPath = specialFolders.downloads;
+                break;
+            case 'documents':
+                folderPath = specialFolders.documents;
+                break;
+            case 'other-files':
+                folderPath = specialFolders.home;
+                break;
+        }
+    }
+    
+    if (folderPath && fileListId) {
+        await loadFolderFiles(folderPath, fileListId);
+    }
+}
+
+// Load files for a specific folder and display them
+async function loadFolderFiles(folderPath, fileListId) {
+    try {
+        const response = await window.electronAPI.apiRequest('GET', `/api/files/browse?path=${encodeURIComponent(folderPath)}`);
+        if (response.success && response.data) {
+            displayFolderFiles(response.data.items, fileListId);
+        } else {
+            showToast('Failed to load folder: ' + (response.error || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        console.error('Failed to load folder:', error);
+        showToast('Failed to load folder: ' + error.message, 'error');
+    }
+}
+
+// Display files in a folder list
+function displayFolderFiles(items, fileListId) {
+    const fileList = document.getElementById(fileListId);
+    if (!fileList) return;
+
+    if (items.length === 0) {
+        fileList.innerHTML = '<div class="empty-state"><h3>Folder is empty</h3></div>';
+        return;
+    }
+
+    // Sort directories first, then files, both alphabetically
+    items.sort((a, b) => {
+        if (a.is_directory && !b.is_directory) return -1;
+        if (!a.is_directory && b.is_directory) return 1;
+        return a.name.localeCompare(b.name);
+    });
+
+    // Determine if list view
+    const isListView = viewPreferences.view === 'list';
+
+    fileList.innerHTML = items.map(item => {
+        const iconData = getFileIcon(item.name, item.is_directory);
+        const size = item.size ? formatFileSize(item.size) : '';
+        const date = item.modified_time ? new Date(item.modified_time * 1000).toLocaleDateString() : '';
+
+        if (isListView) {
+            // Compact list view layout
+            return `
+                <div class="file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_directory}">
+                    <div class="file-icon-wrapper" data-file-type="${iconData.category}">${iconData.icon}</div>
+                    <div class="file-item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                    ${size ? `<div class="file-item-details">${size}</div>` : ''}
+                    ${date ? `<div class="file-item-details">${date}</div>` : ''}
+                </div>
+            `;
+        } else {
+            // Grid view layout
+            return `
+                <div class="file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_directory}">
+                    <div class="file-icon-wrapper" data-file-type="${iconData.category}">${iconData.icon}</div>
+                    <div class="file-item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                    ${size ? `<div class="file-item-details">${size}</div>` : ''}
+                    ${date ? `<div class="file-item-details">${date}</div>` : ''}
+                </div>
+            `;
+        }
+    }).join('');
+
+    // Apply view preferences to the list
+    applyViewToElement(fileList);
+
+    // Add click handlers
+    fileList.querySelectorAll('.file-item').forEach(item => {
+        item.addEventListener('click', async () => {
+            const filePath = item.dataset.path;
+            const isDir = item.dataset.isDir === 'true';
+            
+            if (isDir) {
+                // For directories, navigate into them (could be enhanced later)
+                showToast('Double-click to open folder', 'info');
+            } else {
+                // Open file
+                await openFile(filePath);
+            }
+        });
+        
+        item.addEventListener('dblclick', async () => {
+            const filePath = item.dataset.path;
+            const isDir = item.dataset.isDir === 'true';
+            
+            if (isDir) {
+                // Navigate into directory - for now just show a message
+                showToast('Folder navigation coming soon', 'info');
+            } else {
+                await openFile(filePath);
+            }
+        });
+    });
+}
+
+// Apply view preferences to a specific element
+function applyViewToElement(element) {
+    if (!element) return;
+    
+    // Apply view type
+    if (viewPreferences.view === 'list') {
+        element.classList.add('list-view');
+        element.classList.remove('grid-view');
+        element.style.gridTemplateColumns = '1fr';
+    } else {
+        element.classList.add('grid-view');
+        element.classList.remove('list-view');
+        const minWidths = {
+            small: '120px',
+            medium: '180px',
+            large: '240px'
+        };
+        element.style.gridTemplateColumns = `repeat(auto-fill, minmax(${minWidths[viewPreferences.size]}, 1fr))`;
+    }
+    
+    // Apply size
+    element.classList.remove('size-small', 'size-medium', 'size-large');
+    element.classList.add(`size-${viewPreferences.size}`);
+}
+
 // Browse directory
 async function browseDirectory(path) {
     try {
@@ -613,16 +1141,14 @@ function displayBrowserItems(items) {
     }
 
     fileList.innerHTML = items.map(item => {
-        const icon = item.is_directory ? 
-            '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>' :
-            '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+        const iconData = getFileIcon(item.name, item.is_directory);
         
         const size = item.size ? formatFileSize(item.size) : '';
         const date = item.modified_time ? new Date(item.modified_time * 1000).toLocaleDateString() : '';
 
         return `
             <div class="browser-file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_directory}">
-                <div class="browser-file-icon">${icon}</div>
+                <div class="browser-file-icon" data-file-type="${iconData.category}">${iconData.icon}</div>
                 <div class="browser-file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
                 ${size || date ? `<div class="browser-file-info">${size} ${date}</div>` : ''}
             </div>
@@ -800,22 +1326,7 @@ if (browserAddIndexBtn) {
     });
 }
 
-// Load browser data when switching to browser page
-document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => {
-        if (item.dataset.page === 'browser') {
-            if (!currentBrowserPath && specialFolders.home) {
-                browseDirectory(specialFolders.home);
-            } else if (!currentBrowserPath) {
-                loadSpecialFolders().then(() => {
-                    if (specialFolders.home) {
-                        browseDirectory(specialFolders.home);
-                    }
-                });
-            }
-        }
-    });
-});
+// Note: Folder page loading is handled in the main navigation handler above
 
 // Initialize
 checkBackendConnection();
@@ -826,3 +1337,6 @@ loadSettings();
 loadSystemInfo();
 loadLibrariesTable();
 loadSpecialFolders();
+loadSearchHistory();
+loadViewPreferences();
+applyViewPreferences();

@@ -1,4 +1,4 @@
-# Gist (Vector Explorer)
+# GIST Vector Search
 
 A modern desktop application for semantic file search using AI-powered vector embeddings. Built with Electron and Rust, powered by Ollama for local, privacy-focused embedding generation.
 

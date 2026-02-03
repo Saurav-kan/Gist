@@ -7,6 +7,52 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::search::cosine_similarity;
 
+/// Adjust similarity score based on file name length and content size
+/// This helps reduce false positives from single-word files
+fn adjust_similarity_for_file_length(
+    base_similarity: f32,
+    file_name: &str,
+    file_size: i64,
+    query_word_count: usize,
+) -> f32 {
+    let mut adjusted = base_similarity;
+    
+    // Count words in filename (split by common separators)
+    let file_name_words: Vec<&str> = file_name
+        .split(|c: char| c.is_whitespace() || c == '-' || c == '_' || c == '.')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let file_name_word_count = file_name_words.len();
+    
+    // Penalize very short filenames (1-2 words) more heavily
+    if file_name_word_count <= 2 {
+        // Apply penalty: reduce similarity by 15-25% for very short names
+        let penalty = if file_name_word_count == 1 {
+            0.25 // 25% penalty for single-word files
+        } else {
+            0.15 // 15% penalty for two-word files
+        };
+        adjusted = adjusted * (1.0 - penalty);
+    }
+    
+    // Penalize very small files (likely minimal content)
+    // Files under 100 bytes are likely to have minimal semantic content
+    if file_size < 100 {
+        adjusted = adjusted * 0.85; // 15% penalty
+    } else if file_size < 500 {
+        adjusted = adjusted * 0.92; // 8% penalty
+    }
+    
+    // For short queries (1-2 words), be more strict with short filenames
+    if query_word_count <= 2 && file_name_word_count <= 2 {
+        // Additional penalty when both query and filename are short
+        adjusted = adjusted * 0.90; // Additional 10% penalty
+    }
+    
+    // Ensure similarity stays in valid range
+    adjusted.max(0.0).min(1.0)
+}
+
 #[derive(Deserialize)]
 pub struct SearchRequest {
     query: String,
@@ -41,25 +87,54 @@ pub async fn search_files(
     
     let query_embedding = embedding_service.generate_embedding(&request.query)
         .await
-        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            eprintln!("Error generating query embedding: {}", e);
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    
+    eprintln!("Generated query embedding with {} dimensions", query_embedding.len());
 
     // Try to use HNSW index if available, otherwise fall back to linear search
     let mut results: Vec<(crate::storage::FileMetadata, f32)> = Vec::new();
+    
+    // Calculate query word count for weighting
+    let query_words: Vec<&str> = request.query.split_whitespace().collect();
+    let query_word_count = query_words.len();
     
     let hnsw_guard = state.hnsw_index.read().await;
     if let Some(ref hnsw) = *hnsw_guard {
         // Use HNSW search
         if let Ok(hnsw_results) = hnsw.search(query_embedding.clone(), limit * 2) {
-            results = hnsw_results;
+            // Apply same adjustments to HNSW results
+            results = hnsw_results.into_iter().map(|(meta, sim)| {
+                let adjusted = adjust_similarity_for_file_length(
+                    sim,
+                    &meta.file_name,
+                    meta.file_size,
+                    query_word_count
+                );
+                (meta, adjusted)
+            }).collect();
         }
     }
     drop(hnsw_guard);
     
     // If HNSW didn't return results, use linear search
     if results.is_empty() {
-        let files_with_embeddings = state.storage.get_all_embeddings()
-            .await
-            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+        let files_with_embeddings = match state.storage.get_all_embeddings().await {
+            Ok(embeddings) => {
+                if embeddings.is_empty() {
+                    eprintln!("Warning: No embeddings found in storage");
+                } else {
+                    eprintln!("Found {} files with embeddings for search", embeddings.len());
+                }
+                embeddings
+            }
+            Err(e) => {
+                eprintln!("Error getting embeddings: {}", e);
+                return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
 
         // Calculate similarities in parallel chunks
         use futures::future::join_all;
@@ -72,8 +147,17 @@ pub async fn search_files(
                 let emb = embedding.clone();
                 let meta = metadata.clone();
                 tokio::spawn(async move {
-                    let similarity = cosine_similarity(&query, &emb);
-                    (meta, similarity)
+                    let base_similarity = cosine_similarity(&query, &emb);
+                    
+                    // Apply penalties for short file names/content
+                    let adjusted_similarity = adjust_similarity_for_file_length(
+                        base_similarity,
+                        &meta.file_name,
+                        meta.file_size,
+                        query_word_count
+                    );
+                    
+                    (meta, adjusted_similarity)
                 })
             }).collect();
             

@@ -18,5 +18,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   windowMaximize: () =>
     ipcRenderer.invoke('window-maximize'),
   windowClose: () =>
-    ipcRenderer.invoke('window-close')
+    ipcRenderer.invoke('window-close'),
+  getSpellCheckerLanguages: () =>
+    ipcRenderer.invoke('get-spell-checker-languages'),
+  setSpellCheckerLanguages: (languages) =>
+    ipcRenderer.invoke('set-spell-checker-languages', languages)
 });

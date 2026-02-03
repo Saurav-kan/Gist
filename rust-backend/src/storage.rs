@@ -217,24 +217,82 @@ impl Storage {
     }
 
     pub async fn get_embedding(&self, metadata: &FileMetadata) -> Result<Vec<f32>> {
-        let mut file = std::fs::File::open(&self.embeddings_path)?;
         use std::io::{Seek, Read};
-        file.seek(std::io::SeekFrom::Start(metadata.embedding_offset as u64))?;
         
-        let mut buffer = vec![0u8; metadata.embedding_length as usize];
-        file.read_exact(&mut buffer)?;
+        // Retry logic for Windows file locking issues
+        let mut retries = 5;
+        let mut last_error = None;
         
-        let embedding: Vec<f32> = bincode::deserialize(&buffer)?;
-        Ok(embedding)
+        while retries > 0 {
+            match std::fs::File::open(&self.embeddings_path) {
+                Ok(mut file) => {
+                    match file.seek(std::io::SeekFrom::Start(metadata.embedding_offset as u64)) {
+                        Ok(_) => {
+                            let mut buffer = vec![0u8; metadata.embedding_length as usize];
+                            match file.read_exact(&mut buffer) {
+                                Ok(_) => {
+                                    match bincode::deserialize(&buffer) {
+                                        Ok(embedding) => return Ok(embedding),
+                                        Err(e) => {
+                                            last_error = Some(e.into());
+                                            break; // Deserialization error, don't retry
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    last_error = Some(e.into());
+                                    retries -= 1;
+                                    if retries > 0 {
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            last_error = Some(e.into());
+                            retries -= 1;
+                            if retries > 0 {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_error = Some(e.into());
+                    retries -= 1;
+                    if retries > 0 {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Failed to read embedding after retries")))
     }
 
     pub async fn get_all_embeddings(&self) -> Result<Vec<(FileMetadata, Vec<f32>)>> {
         let files = self.get_all_files().await?;
         let mut result = Vec::new();
+        let mut errors = Vec::new();
         
         for file in files {
-            let embedding = self.get_embedding(&file).await?;
-            result.push((file, embedding));
+            match self.get_embedding(&file).await {
+                Ok(embedding) => {
+                    result.push((file, embedding));
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to get embedding for {}: {}", file.file_path, e);
+                    errors.push((file.file_path.clone(), e));
+                    // Continue with other files even if one fails
+                }
+            }
+        }
+        
+        if result.is_empty() && !errors.is_empty() {
+            return Err(anyhow::anyhow!("Failed to read any embeddings. First error: {}", errors[0].1));
         }
         
         Ok(result)

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const axios = require('axios');
 const fs = require('fs').promises;
@@ -16,11 +16,89 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      spellcheck: true // Enable built-in spell checker
     }
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Configure spell checker after window loads
+  mainWindow.webContents.once('did-finish-load', () => {
+    // Set spell checker language (defaults to system language)
+    // You can set specific languages: ['en-US', 'en-GB', 'es-ES', etc.]
+    mainWindow.webContents.session.setSpellCheckerLanguages(['en-US']);
+  });
+
+  // Set up context menu with spell check suggestions
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const menuItems = [];
+
+    // Add spell check suggestions if available
+    if (params.misspelledWord && params.dictionarySuggestions && params.dictionarySuggestions.length > 0) {
+      // Add suggestions
+      params.dictionarySuggestions.forEach((suggestion) => {
+        menuItems.push({
+          label: suggestion,
+          click: () => {
+            mainWindow.webContents.replaceMisspelling(suggestion);
+          }
+        });
+      });
+
+      // Add separator if there are suggestions
+      if (params.dictionarySuggestions.length > 0) {
+        menuItems.push({ type: 'separator' });
+      }
+    }
+
+    // Add "Add to Dictionary" option for misspelled words
+    if (params.misspelledWord) {
+      menuItems.push({
+        label: 'Add to Dictionary',
+        click: () => {
+          mainWindow.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord);
+        }
+      });
+      menuItems.push({ type: 'separator' });
+    }
+
+    // Standard editing options
+    if (params.editFlags.canCut) {
+      menuItems.push({
+        label: 'Cut',
+        role: 'cut',
+        enabled: params.editFlags.canCut
+      });
+    }
+    if (params.editFlags.canCopy) {
+      menuItems.push({
+        label: 'Copy',
+        role: 'copy',
+        enabled: params.editFlags.canCopy
+      });
+    }
+    if (params.editFlags.canPaste) {
+      menuItems.push({
+        label: 'Paste',
+        role: 'paste',
+        enabled: params.editFlags.canPaste
+      });
+    }
+    if (params.editFlags.canSelectAll) {
+      menuItems.push({
+        label: 'Select All',
+        role: 'selectAll',
+        enabled: params.editFlags.canSelectAll
+      });
+    }
+
+    // Build menu from template (only if there are items)
+    if (menuItems.length > 0) {
+      const menu = Menu.buildFromTemplate(menuItems);
+      menu.popup();
+    }
+  });
 
   // Open DevTools in development
   if (process.argv.includes('--dev')) {
@@ -132,4 +210,20 @@ ipcMain.handle('window-maximize', () => {
 
 ipcMain.handle('window-close', () => {
   if (mainWindow) mainWindow.close();
+});
+
+// Spell checker handlers
+ipcMain.handle('get-spell-checker-languages', () => {
+  if (mainWindow && mainWindow.webContents) {
+    return { success: true, languages: mainWindow.webContents.session.getSpellCheckerLanguages() };
+  }
+  return { success: false, languages: [] };
+});
+
+ipcMain.handle('set-spell-checker-languages', (event, languages) => {
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.session.setSpellCheckerLanguages(languages);
+    return { success: true };
+  }
+  return { success: false };
 });
