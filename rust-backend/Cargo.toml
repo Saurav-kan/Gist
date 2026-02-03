@@ -27,6 +27,8 @@ dirs = "5.0"
 num_cpus = "1.16"
 sysinfo = "0.30"
 winapi = { version = "0.3", features = ["sysinfoapi", "winnt"] }
+hnsw = "0.11"
+rand = "0.8"
 
 [profile.release]
 opt-level = 3

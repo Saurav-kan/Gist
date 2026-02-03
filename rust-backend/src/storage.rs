@@ -64,29 +64,68 @@ impl Storage {
     }
 
     pub async fn add_file(&self, metadata: &FileMetadata, embedding: &[f32]) -> Result<()> {
-        // Get current file size for offset
-        let offset = if self.embeddings_path.exists() {
-            std::fs::metadata(&self.embeddings_path)?.len() as i64
+        // Check if file already exists in index
+        let existing_metadata = self.get_file_metadata(&metadata.file_path).await?;
+        
+        let (offset, length) = if let Some(existing) = existing_metadata {
+            // File exists - check if it has changed
+            if existing.modified_time == metadata.modified_time 
+                && existing.file_size == metadata.file_size 
+                && existing.embedding_length == (bincode::serialize(embedding)?.len() as i64) {
+                // File hasn't changed, reuse existing embedding
+                (existing.embedding_offset, existing.embedding_length)
+            } else {
+                // File has changed, need new embedding
+                // Get current file size for offset (append to end)
+                let new_offset = if self.embeddings_path.exists() {
+                    std::fs::metadata(&self.embeddings_path)?.len() as i64
+                } else {
+                    0
+                };
+                
+                // Serialize and append new embedding
+                let serialized = bincode::serialize(embedding)?;
+                let new_length = serialized.len() as i64;
+                
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .write(true)
+                    .open(&self.embeddings_path)?;
+                
+                file.write_all(&serialized)?;
+                file.flush()?;
+                
+                (new_offset, new_length)
+            }
         } else {
-            0
+            // New file, append embedding
+            let new_offset = if self.embeddings_path.exists() {
+                std::fs::metadata(&self.embeddings_path)?.len() as i64
+            } else {
+                0
+            };
+            
+            // Serialize embedding
+            let serialized = bincode::serialize(embedding)?;
+            let new_length = serialized.len() as i64;
+            
+            // Append embedding to binary file
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .write(true)
+                .open(&self.embeddings_path)?;
+            
+            file.write_all(&serialized)?;
+            file.flush()?;
+            
+            (new_offset, new_length)
         };
         
-        // Serialize embedding
-        let serialized = bincode::serialize(embedding)?;
-        let length = serialized.len() as i64;
-        
-        // Append embedding to binary file
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .write(true)
-            .open(&self.embeddings_path)?;
-        
-        file.write_all(&serialized)?;
-        file.flush()?;
-        
-        // Insert metadata
+        // Update metadata in database
         let db_path = self.db_path.clone();
         let metadata_clone = metadata.clone();
         task::spawn_blocking(move || {

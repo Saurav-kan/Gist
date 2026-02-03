@@ -87,7 +87,33 @@ pub async fn update_settings(
 
     if let Some(dirs) = request.indexed_directories {
         // Replace directories list (frontend sends complete updated list)
-        config.indexed_directories = dirs;
+        let old_dirs = config.indexed_directories.clone();
+        config.indexed_directories = dirs.clone();
+        
+        // Update file watcher if auto_index is enabled
+        if config.auto_index {
+            if let Some(watcher_mutex) = &state.file_watcher {
+                let mut watcher = watcher_mutex.lock().await;
+                
+                // Remove directories that are no longer in the list
+                for old_dir in &old_dirs {
+                    if !dirs.contains(old_dir) {
+                        if let Err(e) = watcher.remove_directory(old_dir) {
+                            eprintln!("Warning: Failed to remove directory {} from watcher: {}", old_dir, e);
+                        }
+                    }
+                }
+                
+                // Add new directories
+                for new_dir in &dirs {
+                    if !old_dirs.contains(new_dir) {
+                        if let Err(e) = watcher.add_directory(new_dir) {
+                            eprintln!("Warning: Failed to add directory {} to watcher: {}", new_dir, e);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if let Some(filters) = request.file_type_filters {
@@ -111,6 +137,20 @@ pub async fn update_settings(
 
     if let Some(val) = request.auto_index {
         config.auto_index = val;
+        
+        // If auto_index was enabled and directories exist, ensure watcher is set up
+        // If auto_index was disabled, watcher will be None (handled on next restart)
+        // Note: Full watcher recreation requires restart, but we can at least update existing one
+        if val && !config.indexed_directories.is_empty() {
+            if let Some(watcher_mutex) = &state.file_watcher {
+                let mut watcher = watcher_mutex.lock().await;
+                // Add any directories that aren't being watched
+                for dir in &config.indexed_directories {
+                    // Try to add - if it fails, it might already be watched
+                    let _ = watcher.add_directory(dir);
+                }
+            }
+        }
     }
 
     if let Some(val) = request.max_search_results {

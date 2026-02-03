@@ -2,6 +2,7 @@ mod api;
 mod config;
 mod embedding;
 mod file_watcher;
+mod hnsw_index;
 mod indexer;
 mod parsers;
 mod search;
@@ -19,6 +20,8 @@ use tower_http::cors::CorsLayer;
 use crate::config::AppConfig;
 use crate::storage::Storage;
 use crate::file_watcher::FileWatcher;
+use crate::indexer::IndexingProgress;
+use crate::hnsw_index::HnswIndex;
 
 pub use crate::config::PerformanceMode;
 
@@ -27,6 +30,8 @@ pub struct AppState {
     pub storage: Arc<Storage>,
     pub config: Arc<AppConfig>,
     pub file_watcher: Option<Arc<tokio::sync::Mutex<FileWatcher>>>,
+    pub indexing_progress: Arc<tokio::sync::RwLock<Option<IndexingProgress>>>,
+    pub hnsw_index: Arc<tokio::sync::RwLock<Option<HnswIndex>>>,
 }
 
 #[tokio::main]
@@ -57,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     
     // Initialize file watcher if auto_index is enabled
     let file_watcher = if config.auto_index && !config.indexed_directories.is_empty() {
-        match FileWatcher::new(indexer.clone(), config.indexed_directories.clone()) {
+        match FileWatcher::new(indexer.clone(), storage.clone(), config.indexed_directories.clone()) {
             Ok(watcher) => Some(Arc::new(tokio::sync::Mutex::new(watcher))),
             Err(e) => {
                 eprintln!("Warning: Failed to initialize file watcher: {}", e);
@@ -68,10 +73,15 @@ async fn main() -> anyhow::Result<()> {
         None
     };
     
+    // Initialize HNSW index (will be built lazily on first search or after indexing)
+    let hnsw_index = Arc::new(tokio::sync::RwLock::new(None));
+    
     let app_state = AppState { 
         storage, 
         config,
         file_watcher,
+        indexing_progress: Arc::new(tokio::sync::RwLock::new(None)),
+        hnsw_index,
     };
 
     // Build router
@@ -82,6 +92,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/system-info", get(api::system_info::get_system_info))
         .route("/api/search", post(api::search::search_files))
         .route("/api/files", get(api::files::list_files))
+        .route("/api/files/browse", get(api::files_browser::browse_directory))
+        .route("/api/files/special-folders", get(api::files_browser::get_special_folders))
+        .route("/api/files/create-folder", post(api::files_browser::create_folder))
+        .route("/api/files/delete", post(api::files_browser::delete_item))
+        .route("/api/files/rename", put(api::files_browser::rename_item))
         .route("/api/index/start", post(api::index::start_indexing))
         .route("/api/index/status", get(api::index::get_index_status))
         .route("/api/index/clear", post(api::index::clear_index))

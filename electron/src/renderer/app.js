@@ -140,6 +140,9 @@ async function performSearch() {
   const query = searchInput.value.trim();
   if (!query) return;
   
+  // Add to search history
+  addToSearchHistory(query);
+  
   // Hide all but loading
   if (resultsList) resultsList.style.display = 'none';
   if (initialState) initialState.style.display = 'none';
@@ -243,7 +246,7 @@ async function openFile(filePath) {
       alert('Failed to open file: ' + (result.error || 'Unknown error'));
     }
   } catch (error) {
-    alert('Error opening file: ' + error.message);
+    showError('Error opening file: ' + error.message);
   }
 }
 
@@ -448,11 +451,11 @@ if (clearIndexBtn) {
             // Clear the index (files and embeddings) but keep folders in settings
             const response = await window.electronAPI.apiRequest('POST', '/api/index/clear');
             if (response.success) {
-                alert('Index purged. You can re-index folders by clicking "Add Folder" again.');
+                showSuccess('Index purged. You can re-index folders by clicking "Add Folder" again.');
                 loadLibrariesTable();
             }
         } catch (error) {
-            alert('Purge failed: ' + error.message);
+            showError('Purge failed: ' + error.message);
         }
     });
 }
@@ -481,7 +484,7 @@ if (addDirectoryBtn) {
                             indexed_directories: updatedDirs
                         });
                         if (!response.success) {
-                            alert('Failed to update settings: ' + (response.error || 'Unknown error'));
+                            showError('Failed to update settings: ' + (response.error || 'Unknown error'));
                             return;
                         }
                     }
@@ -491,11 +494,13 @@ if (addDirectoryBtn) {
                         directory: result.path
                     });
                     loadLibrariesTable();
+                    // Start polling for indexing progress
+                    startIndexingProgressPoll();
                 }
             }
         } catch (error) {
             console.error('Failed to add directory:', error);
-            alert('Failed to add directory: ' + error.message);
+            showError('Failed to add directory: ' + error.message);
         }
     });
 }
@@ -521,9 +526,303 @@ function updateSidebarStatus(text, progress) {
   if (statusFill) statusFill.style.width = `${progress}%`;
 }
 
+let indexingProgressInterval = null;
+
+async function checkIndexingProgress() {
+  try {
+    const response = await window.electronAPI.apiRequest('GET', '/api/index/status');
+    if (response.success && response.data) {
+      const status = response.data;
+      if (status.is_indexing && status.current !== null && status.total !== null) {
+        const percent = status.total > 0 ? Math.round((status.current / status.total) * 100) : 0;
+        const fileName = status.current_file ? status.current_file.split(/[\\/]/).pop() : '';
+        updateSidebarStatus(
+          `Indexing: ${status.current}/${status.total} ${fileName ? `(${fileName})` : ''}`,
+          percent
+        );
+        return true; // Still indexing
+      } else {
+        // Not indexing, check backend health
+        await checkBackendConnection();
+        return false; // Not indexing
+      }
+    }
+  } catch (error) {
+    // If error, fall back to health check
+    await checkBackendConnection();
+  }
+  return false;
+}
+
+function startIndexingProgressPoll() {
+  // Clear any existing interval
+  if (indexingProgressInterval) {
+    clearInterval(indexingProgressInterval);
+  }
+  
+  // Poll every 500ms while indexing
+  indexingProgressInterval = setInterval(async () => {
+    const isIndexing = await checkIndexingProgress();
+    if (!isIndexing && indexingProgressInterval) {
+      clearInterval(indexingProgressInterval);
+      indexingProgressInterval = null;
+    }
+  }, 500);
+}
+
+// File Browser functionality
+let currentBrowserPath = '';
+let selectedBrowserItem = null;
+let specialFolders = {};
+
+// Load special folders on startup
+async function loadSpecialFolders() {
+    try {
+        const response = await window.electronAPI.apiRequest('GET', '/api/files/special-folders');
+        if (response.success && response.data) {
+            specialFolders = response.data;
+        }
+    } catch (error) {
+        console.error('Failed to load special folders:', error);
+    }
+}
+
+// Browse directory
+async function browseDirectory(path) {
+    try {
+        const response = await window.electronAPI.apiRequest('GET', `/api/files/browse?path=${encodeURIComponent(path)}`);
+        if (response.success && response.data) {
+            currentBrowserPath = response.data.path;
+            const pathEl = document.getElementById('browser-path');
+            if (pathEl) pathEl.textContent = response.data.path;
+            displayBrowserItems(response.data.items);
+        }
+    } catch (error) {
+        console.error('Failed to browse directory:', error);
+        showError('Failed to browse directory: ' + error.message);
+    }
+}
+
+function displayBrowserItems(items) {
+    const fileList = document.getElementById('browser-file-list');
+    if (!fileList) return;
+
+    if (items.length === 0) {
+        fileList.innerHTML = '<div class="empty-state"><h3>Folder is empty</h3></div>';
+        return;
+    }
+
+    fileList.innerHTML = items.map(item => {
+        const icon = item.is_directory ? 
+            '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>' :
+            '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+        
+        const size = item.size ? formatFileSize(item.size) : '';
+        const date = item.modified_time ? new Date(item.modified_time * 1000).toLocaleDateString() : '';
+
+        return `
+            <div class="browser-file-item" data-path="${escapeHtml(item.path)}" data-is-dir="${item.is_directory}">
+                <div class="browser-file-icon">${icon}</div>
+                <div class="browser-file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                ${size || date ? `<div class="browser-file-info">${size} ${date}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    // Add click handlers
+    fileList.querySelectorAll('.browser-file-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            // Remove previous selection
+            fileList.querySelectorAll('.browser-file-item').forEach(i => i.classList.remove('selected'));
+            item.classList.add('selected');
+            selectedBrowserItem = {
+                path: item.dataset.path,
+                isDirectory: item.dataset.isDir === 'true'
+            };
+            
+            // Enable/disable toolbar buttons
+            const deleteBtn = document.getElementById('browser-delete');
+            const renameBtn = document.getElementById('browser-rename');
+            const addIndexBtn = document.getElementById('browser-add-to-index');
+            if (deleteBtn) deleteBtn.disabled = false;
+            if (renameBtn) renameBtn.disabled = false;
+            if (addIndexBtn) addIndexBtn.disabled = !selectedBrowserItem.isDirectory;
+
+            // Double click to open directory
+            if (e.detail === 2 && selectedBrowserItem.isDirectory) {
+                browseDirectory(selectedBrowserItem.path);
+            }
+        });
+    });
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// Quick access handlers
+document.querySelectorAll('.quick-access-item').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const folderType = btn.dataset.path;
+        if (specialFolders[folderType]) {
+            await browseDirectory(specialFolders[folderType]);
+        } else {
+            await loadSpecialFolders();
+            if (specialFolders[folderType]) {
+                await browseDirectory(specialFolders[folderType]);
+            }
+        }
+    });
+});
+
+// Browser toolbar handlers
+const browserBackBtn = document.getElementById('browser-back');
+if (browserBackBtn) {
+    browserBackBtn.addEventListener('click', () => {
+        if (currentBrowserPath) {
+            const parts = currentBrowserPath.split(/[\\/]/).filter(p => p);
+            if (parts.length > 1) {
+                parts.pop();
+                const parent = parts.join('/') || (currentBrowserPath.includes('\\') ? parts.join('\\') : '/');
+                browseDirectory(parent);
+            }
+        }
+    });
+}
+
+const browserNewFolderBtn = document.getElementById('browser-new-folder');
+if (browserNewFolderBtn) {
+    browserNewFolderBtn.addEventListener('click', async () => {
+        const name = prompt('Enter folder name:');
+        if (!name) return;
+        
+        try {
+            const response = await window.electronAPI.apiRequest('POST', '/api/files/create-folder', {
+                path: currentBrowserPath || specialFolders.home || '',
+                name: name
+            });
+            if (response.success) {
+                await browseDirectory(currentBrowserPath);
+            } else {
+                showError('Failed to create folder: ' + (response.error || 'Unknown error'));
+            }
+        } catch (error) {
+            showError('Failed to create folder: ' + error.message);
+        }
+    });
+}
+
+const browserDeleteBtn = document.getElementById('browser-delete');
+if (browserDeleteBtn) {
+    browserDeleteBtn.addEventListener('click', async () => {
+        if (!selectedBrowserItem) return;
+        
+        const itemName = selectedBrowserItem.path.split(/[\\/]/).pop();
+        const confirmMsg = selectedBrowserItem.isDirectory 
+            ? `Delete folder "${itemName}" and all its contents?`
+            : `Delete file "${itemName}"?`;
+        
+        if (!confirm(confirmMsg)) return;
+        
+        try {
+            const response = await window.electronAPI.apiRequest('POST', '/api/files/delete', {
+                path: selectedBrowserItem.path
+            });
+            if (response.success) {
+                selectedBrowserItem = null;
+                await browseDirectory(currentBrowserPath);
+            } else {
+                showError('Failed to delete: ' + (response.error || 'Unknown error'));
+            }
+        } catch (error) {
+            showError('Failed to delete: ' + error.message);
+        }
+    });
+}
+
+const browserRenameBtn = document.getElementById('browser-rename');
+if (browserRenameBtn) {
+    browserRenameBtn.addEventListener('click', async () => {
+        if (!selectedBrowserItem) return;
+        
+        const oldName = selectedBrowserItem.path.split(/[\\/]/).pop();
+        const newName = prompt('Enter new name:', oldName);
+        if (!newName || newName === oldName) return;
+        
+        try {
+            const response = await window.electronAPI.apiRequest('PUT', '/api/files/rename', {
+                path: selectedBrowserItem.path,
+                new_name: newName
+            });
+            if (response.success) {
+                selectedBrowserItem = null;
+                await browseDirectory(currentBrowserPath);
+            } else {
+                showError('Failed to rename: ' + (response.error || 'Unknown error'));
+            }
+        } catch (error) {
+            showError('Failed to rename: ' + error.message);
+        }
+    });
+}
+
+const browserAddIndexBtn = document.getElementById('browser-add-to-index');
+if (browserAddIndexBtn) {
+    browserAddIndexBtn.addEventListener('click', async () => {
+        if (!selectedBrowserItem || !selectedBrowserItem.isDirectory) return;
+        
+        try {
+            // Add to indexed directories
+            const settingsResponse = await window.electronAPI.apiRequest('GET', '/api/settings');
+            if (settingsResponse.success) {
+                const currentDirs = settingsResponse.data.indexed_directories || [];
+                if (!currentDirs.includes(selectedBrowserItem.path)) {
+                    const response = await window.electronAPI.apiRequest('PUT', '/api/settings', {
+                        indexed_directories: [...currentDirs, selectedBrowserItem.path]
+                    });
+                    
+                    if (response.success) {
+                        await window.electronAPI.apiRequest('POST', '/api/index/start', {
+                            directory: selectedBrowserItem.path
+                        });
+                        showSuccess('Folder added to index and indexing started!');
+                        startIndexingProgressPoll();
+                    }
+                } else {
+                    showInfo('Folder is already indexed');
+                }
+            }
+        } catch (error) {
+            showError('Failed to add to index: ' + error.message);
+        }
+    });
+}
+
+// Load browser data when switching to browser page
+document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+        if (item.dataset.page === 'browser') {
+            if (!currentBrowserPath && specialFolders.home) {
+                browseDirectory(specialFolders.home);
+            } else if (!currentBrowserPath) {
+                loadSpecialFolders().then(() => {
+                    if (specialFolders.home) {
+                        browseDirectory(specialFolders.home);
+                    }
+                });
+            }
+        }
+    });
+});
+
 // Initialize
 checkBackendConnection();
 setInterval(checkBackendConnection, 10000);
+// Also check indexing progress periodically
+setInterval(checkIndexingProgress, 2000);
 loadSettings();
 loadSystemInfo();
 loadLibrariesTable();
+loadSpecialFolders();
