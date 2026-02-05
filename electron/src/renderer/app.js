@@ -417,7 +417,30 @@ async function performSearch() {
     }
     
     // Perform search with parsed query and filters
-    const searchQuery = parsedQuery ? parsedQuery.query : query;
+    // Ensure we have a valid query string (use original query if parsed query is empty/undefined)
+    let searchQuery = query; // Default to original query
+    if (parsedQuery && parsedQuery.query && typeof parsedQuery.query === 'string' && parsedQuery.query.trim().length > 0) {
+      searchQuery = parsedQuery.query.trim();
+    }
+    
+    // Validate that we have a non-empty query before sending
+    if (!searchQuery || typeof searchQuery !== 'string' || searchQuery.trim().length === 0) {
+      console.error('[SEARCH] Invalid query:', { searchQuery, parsedQuery, originalQuery: query });
+      showError('Search query cannot be empty');
+      if (loadingState) loadingState.style.display = 'none';
+      if (initialState) initialState.style.display = 'flex';
+      return;
+    }
+    
+    // Ensure searchQuery is a string (not undefined/null)
+    searchQuery = String(searchQuery).trim();
+    
+    console.log('[SEARCH] Sending search request:', {
+      query: searchQuery,
+      limit: maxSearchResults,
+      hasFilters: !!activeFilters
+    });
+    
     const response = await window.electronAPI.apiRequest('POST', '/api/search', { 
       query: searchQuery,
       limit: maxSearchResults,

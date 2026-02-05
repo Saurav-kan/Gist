@@ -93,6 +93,12 @@ pub async fn search_files(
     State(state): State<AppState>,
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, axum::http::StatusCode> {
+    // Validate query is not empty
+    if request.query.trim().is_empty() {
+        eprintln!("Search request received with empty query");
+        return Err(axum::http::StatusCode::BAD_REQUEST);
+    }
+    
     // Use config's max_search_results as default, but allow override up to 200
     let default_limit = state.config.max_search_results;
     let limit = request.limit.unwrap_or(default_limit).min(200);

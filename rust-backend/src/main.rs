@@ -1,39 +1,20 @@
-mod api;
-mod config;
-mod embedding;
-mod file_watcher;
-mod hnsw_index;
-mod indexer;
-mod parsers;
-mod query_parser;
-mod search;
-mod storage;
-
 use axum::{
-    http::StatusCode,
-    response::Json,
     routing::{get, post, put},
     Router,
 };
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
-use crate::config::AppConfig;
-use crate::storage::Storage;
-use crate::file_watcher::FileWatcher;
-use crate::indexer::IndexingProgress;
-use crate::hnsw_index::HnswIndex;
-
-pub use crate::config::PerformanceMode;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub storage: Arc<Storage>,
-    pub config: Arc<AppConfig>,
-    pub file_watcher: Option<Arc<tokio::sync::Mutex<FileWatcher>>>,
-    pub indexing_progress: Arc<tokio::sync::RwLock<Option<IndexingProgress>>>,
-    pub hnsw_index: Arc<tokio::sync::RwLock<Option<HnswIndex>>>,
-}
+use nlp_file_explorer_backend::{
+    config::AppConfig,
+    storage::Storage,
+    file_watcher::FileWatcher,
+    indexer::Indexer,
+    hnsw_index::HnswIndex,
+    AppState,
+    api,
+    health_check,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -44,17 +25,17 @@ async fn main() -> anyhow::Result<()> {
     let storage = Arc::new(Storage::new(&AppConfig::data_dir()).await?);
     
     // Initialize embedding service
-    let embedding_service = Arc::new(crate::embedding::EmbeddingService::new(
+    let embedding_service = Arc::new(nlp_file_explorer_backend::embedding::EmbeddingService::new(
         config.embedding_model.clone()
     ));
     
     // Initialize parser registry
-    let parser_registry = Arc::new(crate::parsers::ParserRegistry::new(
+    let parser_registry = Arc::new(nlp_file_explorer_backend::parsers::ParserRegistry::new(
         &config.file_type_filters
     ));
     
     // Initialize indexer
-    let indexer = Arc::new(crate::indexer::Indexer::new(
+    let indexer = Arc::new(Indexer::new(
         storage.clone(),
         embedding_service,
         parser_registry,
@@ -111,11 +92,4 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
     
     Ok(())
-}
-
-async fn health_check() -> Result<Json<serde_json::Value>, StatusCode> {
-    Ok(Json(serde_json::json!({
-        "status": "ok",
-                "service": "gist-vector-search-backend"
-    })))
 }
