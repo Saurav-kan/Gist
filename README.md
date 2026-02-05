@@ -1,4 +1,4 @@
-# GIST Vector Search
+gi# GIST Vector Search
 
 A modern desktop application for semantic file search using AI-powered vector embeddings. Built with Electron and Rust, powered by Ollama for local, privacy-focused embedding generation.
 
@@ -175,6 +175,16 @@ NLPFileExplorer/
 │
 └── README.md                    # This file
 ```
+
+### ⚡ Performance & Benchmarks
+
+GIST is engineered for high performance with a Rust-powered backend.
+
+- **Search Latency:** ~16ms for 1,000+ files (Multi-threaded).
+- **Throughput:** ~65,000 vector matches per second per core.
+- **Scalability:** Optimized for local use, with planned HNSW support for 100k+ files.
+
+See the full [BENCHMARKS.md](BENCHMARKS.md) for detailed metrics and scaling projections.
 
 ## ⚙️ Configuration
 
