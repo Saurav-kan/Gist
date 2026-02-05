@@ -76,6 +76,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/search/parse", post(api::parse::parse_query))
         .route("/api/files", get(api::files::list_files))
         .route("/api/files/browse", get(api::files_browser::browse_directory))
+        .route("/api/files/search", get(api::files_browser::search_files))
+        .route("/api/files/tree", get(api::tree::get_file_tree))
+        .route("/api/preview", get(api::preview::get_file_preview))
         .route("/api/files/special-folders", get(api::files_browser::get_special_folders))
         .route("/api/files/create-folder", post(api::files_browser::create_folder))
         .route("/api/files/delete", post(api::files_browser::delete_item))
@@ -83,6 +86,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/index/start", post(api::index::start_indexing))
         .route("/api/index/status", get(api::index::get_index_status))
         .route("/api/index/clear", post(api::index::clear_index))
+        .route("/api/ai/summarize", post(api::ai::summarize_document))
+        .route("/api/ai/chat", post(api::ai::chat_about_document))
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
