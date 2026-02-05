@@ -13,6 +13,31 @@ pub struct AppConfig {
     pub auto_index: bool,
     #[serde(default = "default_max_search_results")]
     pub max_search_results: usize,
+    #[serde(default = "default_ai_features_enabled")]
+    pub ai_features_enabled: bool,
+    #[serde(default = "default_ai_provider")]
+    pub ai_provider: AiProvider,
+    #[serde(default)]
+    pub ollama_model: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AiProvider {
+    Ollama,
+    OpenAI,
+    GreenPT,
+    Gemini,
+}
+
+fn default_ai_features_enabled() -> bool {
+    false
+}
+
+fn default_ai_provider() -> AiProvider {
+    AiProvider::Ollama
 }
 
 fn default_max_search_results() -> usize {
@@ -49,6 +74,10 @@ impl Default for AppConfig {
             chunk_size: 512,
             auto_index: true,
             max_search_results: 100,
+            ai_features_enabled: false,
+            ai_provider: AiProvider::Ollama,
+            ollama_model: None,
+            api_key: None,
         }
     }
 }
@@ -83,8 +112,9 @@ impl AppConfig {
                 config.max_search_results = 100;
             }
             
-            // Save updated config with new fields
-            config.save().await?;
+            // Don't save here - only save when explicitly updating settings
+            // Saving here can overwrite user changes if there's a race condition
+            // The config is already loaded correctly from disk
             
             Ok(config)
         } else {

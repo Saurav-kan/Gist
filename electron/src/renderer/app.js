@@ -12,6 +12,9 @@ document.querySelectorAll('.nav-item').forEach(item => {
   item.addEventListener('click', () => {
     const page = item.dataset.page;
     
+    // Close preview panel when switching tabs
+    closePreviewPanel();
+    
     // Update active nav item
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     item.classList.add('active');
@@ -131,17 +134,22 @@ function applyViewToAllLists() {
   });
   
   // Re-render current page if needed
-  const activePage = document.querySelector('.page.active');
-  if (activePage) {
-    const pageId = activePage.id;
-    if (pageId === 'search-page' && lastSearchResults.length > 0) {
-      displayResults(lastSearchResults);
-    } else if (['desktop-page', 'downloads-page', 'documents-page', 'other-files-page'].includes(pageId)) {
-      // Reload current folder page
-      const pageType = pageId.replace('-page', '');
-      loadFolderPage(pageType);
-    }
-  }
+  // Use double requestAnimationFrame to ensure DOM updates and styles are fully applied before re-rendering
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const activePage = document.querySelector('.page.active');
+      if (activePage) {
+        const pageId = activePage.id;
+        if (pageId === 'search-page' && lastSearchResults.length > 0) {
+          displayResults(lastSearchResults);
+        } else if (['desktop-page', 'downloads-page', 'documents-page', 'other-files-page'].includes(pageId)) {
+          // Reload current folder page
+          const pageType = pageId.replace('-page', '');
+          loadFolderPage(pageType);
+        }
+      }
+    });
+  });
 }
 
 // View Toggle (List/Grid) - Universal
@@ -329,10 +337,21 @@ function showSearchHistory() {
     
     // Add click handlers for delete buttons
     dropdown.querySelectorAll('.history-item-delete').forEach(deleteBtn => {
+        deleteBtn.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // Prevent blur on search input
+            e.stopPropagation();
+        });
         deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
+            e.preventDefault();
             const query = deleteBtn.dataset.query;
             removeFromSearchHistory(query);
+            // Keep focus on search input to prevent dropdown from closing
+            requestAnimationFrame(() => {
+                if (searchInput) {
+                    searchInput.focus();
+                }
+            });
         });
     });
 }
@@ -368,7 +387,13 @@ if (searchInput) {
         showSearchHistory();
     });
     
-    searchInput.addEventListener('blur', () => {
+    searchInput.addEventListener('blur', (e) => {
+        // Don't hide dropdown if focus is moving to an element within the dropdown
+        const dropdown = document.getElementById('search-history-dropdown');
+        const relatedTarget = e.relatedTarget;
+        if (dropdown && relatedTarget && dropdown.contains(relatedTarget)) {
+            return; // Focus is moving to dropdown, keep it open
+        }
         hideSearchHistory();
     });
     
@@ -405,6 +430,11 @@ async function performSearch() {
       });
       if (parseResponse.success && parseResponse.data) {
         parsedQuery = parseResponse.data;
+        // Ensure query field exists and is a string
+        if (!parsedQuery.query || typeof parsedQuery.query !== 'string') {
+          console.warn('Parser returned invalid query field:', parsedQuery);
+          parsedQuery.query = query; // Fall back to original query
+        }
         activeFilters = parsedQuery.filters;
         // Display filters in UI
         displayFilters(parsedQuery.filters);
@@ -417,11 +447,39 @@ async function performSearch() {
     }
     
     // Perform search with parsed query and filters
-    const searchQuery = parsedQuery ? parsedQuery.query : query;
+    // Safely extract query with proper null/undefined checks
+    let searchQuery = null;
+    if (parsedQuery && parsedQuery.query) {
+      searchQuery = parsedQuery.query.trim();
+    } else if (query) {
+      searchQuery = query.trim();
+    }
+    
+    // Validate query is not empty
+    if (!searchQuery) {
+      console.error('Search query is empty after parsing!', { parsedQuery, originalQuery: query });
+      showToast('Search query cannot be empty', 'error');
+      if (loadingState) loadingState.style.display = 'none';
+      if (initialState) initialState.style.display = 'flex';
+      return;
+    }
+    
+    // Only send filters if they actually have values (not all null/undefined)
+    let filtersToSend = null;
+    if (activeFilters) {
+      const hasAnyFilters = activeFilters.date_range || 
+                           (activeFilters.file_types && activeFilters.file_types.length > 0) ||
+                           (activeFilters.folder_paths && activeFilters.folder_paths.length > 0);
+      if (hasAnyFilters) {
+        filtersToSend = activeFilters;
+      }
+    }
+    
+    console.log('Searching with query:', searchQuery, 'filters:', filtersToSend);
     const response = await window.electronAPI.apiRequest('POST', '/api/search', { 
       query: searchQuery,
       limit: maxSearchResults,
-      filters: activeFilters
+      filters: filtersToSend
     });
     
     if (response.success && response.data.results) {
@@ -432,16 +490,25 @@ async function performSearch() {
           file: r.file_name,
           similarity: (r.similarity * 100).toFixed(1) + '%'
         })));
+        console.log('Similarity threshold:', similarityThreshold + '%');
+      } else {
+        console.warn('No results returned from backend');
       }
       if (resultsCount) resultsCount.textContent = `Found ${lastSearchResults.length} relevant documents`;
       filterResultsBySimilarity();
+      
+      // Log after filtering
+      const displayedResults = document.querySelectorAll('.result-item').length;
+      console.log(`After similarity filtering: ${displayedResults} results displayed (threshold: ${similarityThreshold}%)`);
     } else {
       showError('Search failed: ' + (response.error || 'Unknown error'));
       if (loadingState) loadingState.style.display = 'none';
       if (initialState) initialState.style.display = 'flex';
     }
   } catch (error) {
-    showError('Search error: ' + error.message);
+    const errorMsg = error?.message || error?.toString() || 'Unknown error';
+    console.error('Search error details:', error);
+    showError('Search error: ' + errorMsg);
     if (loadingState) loadingState.style.display = 'none';
     if (initialState) initialState.style.display = 'flex';
   }
@@ -568,10 +635,12 @@ async function displayResults(results) {
   if (noResults) noResults.style.display = 'none';
   if (initialState) initialState.style.display = 'none';
   resultsList.style.display = 'grid';
-  resultsList.innerHTML = '';
   
-  // Apply view preferences
+  // Apply view preferences BEFORE clearing HTML to avoid reflow issues
   applyViewToElement(resultsList);
+  
+  // Clear HTML after styles are applied
+  resultsList.innerHTML = '';
   
   for (const result of results) {
     const item = document.createElement('div');
@@ -580,6 +649,10 @@ async function displayResults(results) {
     const filePath = result.file_path;
     const fileName = result.file_name || filePath.split(/[\\/]/).pop();
     const fileIconData = getFileIcon(fileName);
+    
+    // Truncate file name and path for display
+    const displayFileName = truncateFileName(fileName, 40);
+    const displayFilePath = truncateFilePath(filePath, 50);
     
     // Get file preview/description
     let description = '';
@@ -598,18 +671,18 @@ async function displayResults(results) {
       <div class="result-header">
         <div class="file-icon-wrapper" data-file-type="${fileIconData.category}">${fileIconData.icon}</div>
         <div class="file-info">
-          <div class="file-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+          <div class="file-name" title="${escapeHtml(fileName)}">${escapeHtml(displayFileName)}</div>
           ${description ? `<div class="file-preview">${escapeHtml(description)}</div>` : ''}
         </div>
       </div>
       <div class="result-footer">
-        <div class="file-path-tag" title="${escapeHtml(filePath)}">${escapeHtml(filePath)}</div>
+        <div class="file-path-tag" title="${escapeHtml(filePath)}">${escapeHtml(displayFilePath)}</div>
         <div class="relevance-tag">${(result.similarity * 100).toFixed(0)}% Match</div>
       </div>
     `;
     
     item.addEventListener('click', async () => {
-      await openFile(filePath);
+      await openPreviewPanel(filePath);
     });
     
     resultsList.appendChild(item);
@@ -734,10 +807,613 @@ async function openFile(filePath) {
   try {
     const result = await window.electronAPI.openFile(filePath);
     if (!result.success) {
-      alert('Failed to open file: ' + (result.error || 'Unknown error'));
+      showToast('Failed to open file: ' + (result.error || 'Unknown error'), 'error');
     }
   } catch (error) {
-    showError('Error opening file: ' + error.message);
+    showToast('Error opening file: ' + error.message, 'error');
+  }
+}
+
+// Open preview panel for a file
+async function openPreviewPanel(filePath) {
+  const previewPanel = document.getElementById('preview-panel');
+  if (!previewPanel) return;
+  
+  // Show preview panel
+  previewPanel.classList.add('active');
+  
+  // Get file name for header
+  const fileName = filePath.split(/[\\/]/).pop();
+  const previewFileName = document.getElementById('preview-file-name');
+  if (previewFileName) {
+    previewFileName.textContent = fileName;
+    previewFileName.title = filePath;
+  }
+  
+  // Show loading state
+  const previewLoading = document.getElementById('preview-loading');
+  const previewText = document.getElementById('preview-text');
+  const previewImage = document.getElementById('preview-image');
+  const previewPdf = document.getElementById('preview-pdf');
+  const previewError = document.getElementById('preview-error');
+  const previewUnsupported = document.getElementById('preview-unsupported');
+  
+  // Hide all preview sections
+  if (previewLoading) previewLoading.style.display = 'none';
+  if (previewText) previewText.style.display = 'none';
+  if (previewImage) previewImage.style.display = 'none';
+  if (previewPdf) previewPdf.style.display = 'none';
+  if (previewError) previewError.style.display = 'none';
+  if (previewUnsupported) previewUnsupported.style.display = 'none';
+  
+  // Store current file path for AI features
+  previewPanel.dataset.currentFile = filePath;
+  
+  // Set up action buttons
+  const openExternalBtn = document.getElementById('preview-open-external-btn');
+  const showFolderBtn = document.getElementById('preview-show-folder-btn');
+  
+  if (openExternalBtn) {
+    openExternalBtn.onclick = () => openFile(filePath);
+  }
+  
+  if (showFolderBtn) {
+    showFolderBtn.onclick = async () => {
+      try {
+        await window.electronAPI.showInFolder(filePath);
+      } catch (error) {
+        showToast('Failed to show in folder: ' + error.message, 'error');
+      }
+    };
+  }
+  
+  // Show loading state
+  if (previewLoading) previewLoading.style.display = 'flex';
+  
+  // Get preview from backend
+  try {
+    const response = await window.electronAPI.apiRequest('GET', `/api/preview?path=${encodeURIComponent(filePath)}`);
+    
+    // Hide loading
+    if (previewLoading) previewLoading.style.display = 'none';
+    
+    if (response.success && response.data) {
+      const previewData = response.data;
+      
+      // Hide all preview sections first
+      if (previewText) previewText.style.display = 'none';
+      if (previewImage) previewImage.style.display = 'none';
+      if (previewPdf) previewPdf.style.display = 'none';
+      if (previewError) previewError.style.display = 'none';
+      if (previewUnsupported) previewUnsupported.style.display = 'none';
+      
+      if (!previewData.preview_available) {
+        // Preview not available
+        if (previewUnsupported) {
+          previewUnsupported.style.display = 'block';
+          previewUnsupported.textContent = previewData.error || 'Preview not available for this file type.';
+        }
+      } else {
+        // Render based on file type
+        switch (previewData.file_type) {
+          case 'text':
+          case 'code':
+            if (previewText && previewData.content) {
+              previewText.style.display = 'block';
+              previewText.textContent = previewData.content;
+              previewText.className = 'preview-text';
+              if (previewData.file_type === 'code') {
+                previewText.classList.add('code-preview');
+              }
+            }
+            break;
+            
+          case 'pdf':
+            // Always use PDF.js to render PDFs as-is (preserves formatting, images, layout)
+            await renderPdfWithPdfJs(filePath, previewPdf);
+            break;
+            
+          case 'docx':
+            if (previewText && previewData.content) {
+              previewText.style.display = 'block';
+              previewText.textContent = previewData.content;
+              previewText.className = 'preview-text document-preview';
+            }
+            break;
+            
+          case 'image':
+            if (previewImage) {
+              previewImage.style.display = 'flex';
+              previewImage.innerHTML = `<img src="file:///${filePath.replace(/\\/g, '/')}" alt="${escapeHtml(fileName)}" />`;
+            }
+            break;
+            
+          default:
+            if (previewUnsupported) {
+              previewUnsupported.style.display = 'block';
+              previewUnsupported.textContent = 'Preview not available for this file type.';
+            }
+        }
+      }
+      
+      // Show/hide AI section based on settings
+      await updateAiSectionVisibility(filePath);
+    } else {
+      // Error from backend
+      if (previewError) {
+        previewError.style.display = 'block';
+        previewError.textContent = response.error || 'Failed to load preview.';
+      }
+    }
+  } catch (error) {
+    console.error('Preview error:', error);
+    if (previewLoading) previewLoading.style.display = 'none';
+    if (previewError) {
+      previewError.style.display = 'block';
+      previewError.textContent = 'Error loading preview: ' + error.message;
+    }
+  }
+}
+
+// Update AI section visibility based on settings
+async function updateAiSectionVisibility(filePath) {
+  const aiSection = document.getElementById('ai-section');
+  if (!aiSection) return;
+  
+  try {
+    const settingsResponse = await window.electronAPI.apiRequest('GET', '/api/settings');
+    if (settingsResponse.success && settingsResponse.data) {
+      const settings = settingsResponse.data;
+      
+      if (settings.ai_features_enabled) {
+        aiSection.style.display = 'flex';
+        // Initialize AI features for this file
+        initializeAiFeatures(filePath);
+      } else {
+        aiSection.style.display = 'none';
+      }
+    } else {
+      aiSection.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Failed to check AI settings:', error);
+    aiSection.style.display = 'none';
+  }
+}
+
+// Initialize AI features for the current file
+let currentAiFilePath = null;
+let chatHistory = [];
+
+function initializeAiFeatures(filePath) {
+  currentAiFilePath = filePath;
+  chatHistory = [];
+  
+  // Clear previous results
+  const summarizeResult = document.getElementById('ai-summarize-result');
+  const chatMessages = document.getElementById('ai-chat-messages');
+  
+  if (summarizeResult) {
+    summarizeResult.style.display = 'none';
+    summarizeResult.textContent = '';
+  }
+  
+  if (chatMessages) {
+    chatMessages.innerHTML = '';
+  }
+  
+  // Set up event listeners
+  setupAiEventListeners();
+}
+
+function setupAiEventListeners() {
+  // Summarize button
+  const summarizeBtn = document.getElementById('ai-summarize-btn');
+  if (summarizeBtn && !summarizeBtn.dataset.listenerAdded) {
+    summarizeBtn.dataset.listenerAdded = 'true';
+    summarizeBtn.addEventListener('click', async () => {
+      await summarizeDocument();
+    });
+  }
+  
+  // Chat send button
+  const chatSendBtn = document.getElementById('ai-chat-send-btn');
+  const chatInput = document.getElementById('ai-chat-input');
+  
+  if (chatSendBtn && !chatSendBtn.dataset.listenerAdded) {
+    chatSendBtn.dataset.listenerAdded = 'true';
+    chatSendBtn.addEventListener('click', async () => {
+      await sendChatMessage();
+    });
+  }
+  
+  if (chatInput && !chatInput.dataset.listenerAdded) {
+    chatInput.dataset.listenerAdded = 'true';
+    chatInput.addEventListener('keypress', async (e) => {
+      if (e.key === 'Enter') {
+        await sendChatMessage();
+      }
+    });
+  }
+}
+
+// Summarize document
+async function summarizeDocument() {
+  if (!currentAiFilePath) return;
+  
+  const summarizeBtn = document.getElementById('ai-summarize-btn');
+  const summarizeResult = document.getElementById('ai-summarize-result');
+  
+  if (!summarizeBtn || !summarizeResult) return;
+  
+  // Show loading state
+  summarizeBtn.disabled = true;
+  summarizeBtn.textContent = 'Summarizing...';
+  summarizeResult.style.display = 'block';
+  summarizeResult.textContent = 'Generating summary...';
+  
+  try {
+    const response = await window.electronAPI.apiRequest('POST', '/api/ai/summarize', {
+      file_path: currentAiFilePath
+    });
+    
+    if (response.success && response.data) {
+      if (response.data.success && response.data.summary) {
+        summarizeResult.textContent = response.data.summary;
+        summarizeResult.style.display = 'block';
+      } else {
+        summarizeResult.textContent = 'Failed to generate summary: ' + (response.data.error || 'Unknown error');
+        summarizeResult.style.color = '#ef4444';
+      }
+    } else {
+      summarizeResult.textContent = 'Failed to generate summary: ' + (response.error || 'Unknown error');
+      summarizeResult.style.color = '#ef4444';
+    }
+  } catch (error) {
+    console.error('Summarize error:', error);
+    summarizeResult.textContent = 'Error: ' + error.message;
+    summarizeResult.style.color = '#ef4444';
+  } finally {
+    summarizeBtn.disabled = false;
+    summarizeBtn.textContent = 'Summarize Document';
+  }
+}
+
+// Send chat message
+async function sendChatMessage() {
+  if (!currentAiFilePath) return;
+  
+  const chatInput = document.getElementById('ai-chat-input');
+  const chatSendBtn = document.getElementById('ai-chat-send-btn');
+  const chatMessages = document.getElementById('ai-chat-messages');
+  
+  if (!chatInput || !chatSendBtn || !chatMessages) return;
+  
+  const message = chatInput.value.trim();
+  if (!message) return;
+  
+  // Add user message to UI
+  addChatMessage('user', message);
+  
+  // Clear input
+  chatInput.value = '';
+  chatInput.disabled = true;
+  chatSendBtn.disabled = true;
+  
+  // Add loading message
+  const loadingId = 'loading-' + Date.now();
+  addChatMessage('assistant', 'Thinking...', loadingId);
+  
+  try {
+    // Prepare conversation history
+    const history = chatHistory.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+    
+    const response = await window.electronAPI.apiRequest('POST', '/api/ai/chat', {
+      file_path: currentAiFilePath,
+      message: message,
+      conversation_history: history
+    });
+    
+    // Remove loading message
+    const loadingMsg = document.getElementById(loadingId);
+    if (loadingMsg) loadingMsg.remove();
+    
+    if (response.success && response.data) {
+      if (response.data.success && response.data.message) {
+        // Add AI response
+        addChatMessage('assistant', response.data.message);
+        
+        // Update chat history
+        chatHistory.push({ role: 'user', content: message });
+        chatHistory.push({ role: 'assistant', content: response.data.message });
+      } else {
+        addChatMessage('assistant', 'Error: ' + (response.data.error || 'Failed to get response'), null, true);
+      }
+    } else {
+      addChatMessage('assistant', 'Error: ' + (response.error || 'Unknown error'), null, true);
+    }
+  } catch (error) {
+    console.error('Chat error:', error);
+    const loadingMsg = document.getElementById(loadingId);
+    if (loadingMsg) loadingMsg.remove();
+    addChatMessage('assistant', 'Error: ' + error.message, null, true);
+  } finally {
+    chatInput.disabled = false;
+    chatSendBtn.disabled = false;
+    chatInput.focus();
+  }
+}
+
+// Add chat message to UI
+function addChatMessage(role, content, messageId = null, isError = false) {
+  const chatMessages = document.getElementById('ai-chat-messages');
+  if (!chatMessages) return;
+  
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `ai-chat-message ${role}`;
+  if (messageId) messageDiv.id = messageId;
+  if (isError) messageDiv.style.color = '#ef4444';
+  
+  messageDiv.textContent = content;
+  chatMessages.appendChild(messageDiv);
+  
+  // Scroll to bottom
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// PDF.js state
+let currentPdfDoc = null;
+let currentPdfPageNum = 1;
+
+// Render PDF using PDF.js
+async function renderPdfWithPdfJs(filePath, container) {
+  if (!container) return;
+  
+  try {
+    // Load PDF.js if not already loaded
+    const pdfjsLib = await loadPdfJs();
+    
+    // Show loading
+    const previewLoading = document.getElementById('preview-loading');
+    if (previewLoading) previewLoading.style.display = 'flex';
+    
+    // Use file:// protocol for Electron
+    const fileUrl = `file:///${filePath.replace(/\\/g, '/')}`;
+    
+    // Load PDF document
+    const loadingTask = pdfjsLib.getDocument({
+      url: fileUrl,
+      withCredentials: false
+    });
+    
+    currentPdfDoc = await loadingTask.promise;
+    currentPdfPageNum = 1;
+    
+    // Hide loading
+    if (previewLoading) previewLoading.style.display = 'none';
+    
+    // Show PDF container
+    container.style.display = 'block';
+    
+    // Show controls if multiple pages
+    const pdfControls = document.getElementById('pdf-controls');
+    const pdfPrevBtn = document.getElementById('pdf-prev-page');
+    const pdfNextBtn = document.getElementById('pdf-next-page');
+    
+    if (pdfControls && currentPdfDoc.numPages > 1) {
+      pdfControls.style.display = 'flex';
+      updatePdfPageInfo();
+      if (pdfPrevBtn) pdfPrevBtn.disabled = true; // First page
+      if (pdfNextBtn) pdfNextBtn.disabled = currentPdfDoc.numPages === 1;
+    } else if (pdfControls) {
+      pdfControls.style.display = 'none';
+    }
+    
+    // Render first page
+    await renderPdfPage(currentPdfPageNum, container);
+    
+  } catch (error) {
+    console.error('PDF.js error:', error);
+    const previewLoading = document.getElementById('preview-loading');
+    if (previewLoading) previewLoading.style.display = 'none';
+    
+    const previewError = document.getElementById('preview-error');
+    if (previewError) {
+      previewError.style.display = 'block';
+      previewError.textContent = 'Failed to load PDF: ' + error.message;
+    }
+  }
+}
+
+async function renderPdfPage(pageNum, container) {
+  if (!currentPdfDoc || !container) return;
+  
+  try {
+    const page = await currentPdfDoc.getPage(pageNum);
+    const canvas = document.getElementById('pdf-canvas');
+    if (!canvas) return;
+    
+    const context = canvas.getContext('2d');
+    const viewport = page.getViewport({ scale: 1.5 });
+    
+    // Set canvas dimensions
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    
+    // Render PDF page
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport
+    };
+    
+    await page.render(renderContext).promise;
+    
+    // Update button states
+    const pdfPrevBtn = document.getElementById('pdf-prev-page');
+    const pdfNextBtn = document.getElementById('pdf-next-page');
+    if (pdfPrevBtn) pdfPrevBtn.disabled = pageNum === 1;
+    if (pdfNextBtn) pdfNextBtn.disabled = pageNum >= currentPdfDoc.numPages;
+  } catch (error) {
+    console.error('Error rendering PDF page:', error);
+    throw error;
+  }
+}
+
+function updatePdfPageInfo() {
+  const pageInfo = document.getElementById('pdf-page-info');
+  if (pageInfo && currentPdfDoc) {
+    pageInfo.textContent = `Page ${currentPdfPageNum} of ${currentPdfDoc.numPages}`;
+  }
+}
+
+// Detect programming language from file path
+function detectLanguageFromPath(filePath) {
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  const languageMap = {
+    'js': 'javascript',
+    'ts': 'typescript',
+    'py': 'python',
+    'rs': 'rust',
+    'java': 'java',
+    'cpp': 'cpp',
+    'c': 'c',
+    'h': 'c',
+    'hpp': 'cpp',
+    'go': 'go',
+    'rb': 'ruby',
+    'php': 'php',
+    'json': 'json',
+    'xml': 'xml',
+    'html': 'xml',
+    'css': 'css',
+    'sh': 'bash',
+    'bash': 'bash',
+    'zsh': 'bash',
+    'yaml': 'yaml',
+    'yml': 'yaml',
+    'md': 'markdown',
+    'toml': 'toml',
+  };
+  return languageMap[ext] || null;
+}
+
+// Close preview panel
+function closePreviewPanel() {
+  const previewPanel = document.getElementById('preview-panel');
+  if (previewPanel) {
+    previewPanel.classList.remove('active');
+  }
+}
+
+// Render PDF using PDF.js
+async function renderPdfWithPdfJs(filePath, container) {
+  if (!container) return;
+  
+  try {
+    // Load PDF.js if not already loaded
+    const pdfjsLib = await loadPdfJs();
+    
+    // Show loading
+    const previewLoading = document.getElementById('preview-loading');
+    if (previewLoading) previewLoading.style.display = 'flex';
+    
+    // Use file:// protocol for Electron
+    const fileUrl = `file:///${filePath.replace(/\\/g, '/')}`;
+    
+    // Load PDF document
+    const loadingTask = pdfjsLib.getDocument({
+      url: fileUrl,
+      withCredentials: false
+    });
+    
+    currentPdfDoc = await loadingTask.promise;
+    currentPdfPageNum = 1;
+    
+    // Hide loading
+    if (previewLoading) previewLoading.style.display = 'none';
+    
+    // Show PDF container
+    container.style.display = 'block';
+    
+    // Show controls if multiple pages
+    const pdfControls = document.getElementById('pdf-controls');
+    const pdfPrevBtn = document.getElementById('pdf-prev-page');
+    const pdfNextBtn = document.getElementById('pdf-next-page');
+    
+    if (pdfControls && currentPdfDoc.numPages > 1) {
+      pdfControls.style.display = 'flex';
+      updatePdfPageInfo();
+      if (pdfPrevBtn) pdfPrevBtn.disabled = true; // First page
+      if (pdfNextBtn) pdfNextBtn.disabled = currentPdfDoc.numPages === 1;
+    } else if (pdfControls) {
+      pdfControls.style.display = 'none';
+    }
+    
+    // Render first page
+    await renderPdfPage(currentPdfPageNum, container);
+    
+  } catch (error) {
+    console.error('PDF.js error:', error);
+    const previewLoading = document.getElementById('preview-loading');
+    if (previewLoading) previewLoading.style.display = 'none';
+    
+    const previewError = document.getElementById('preview-error');
+    if (previewError) {
+      previewError.style.display = 'block';
+      previewError.textContent = 'Failed to load PDF: ' + error.message;
+    }
+  }
+}
+
+async function renderPdfPage(pageNum, container) {
+  if (!currentPdfDoc || !container) return;
+  
+  try {
+    const page = await currentPdfDoc.getPage(pageNum);
+    const canvas = document.getElementById('pdf-canvas');
+    if (!canvas) return;
+    
+    const context = canvas.getContext('2d');
+    const viewport = page.getViewport({ scale: 1.5 });
+    
+    // Set canvas dimensions
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    
+    // Render PDF page
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport
+    };
+    
+    await page.render(renderContext).promise;
+    
+    // Update button states
+    const pdfPrevBtn = document.getElementById('pdf-prev-page');
+    const pdfNextBtn = document.getElementById('pdf-next-page');
+    if (pdfPrevBtn) pdfPrevBtn.disabled = pageNum === 1;
+    if (pdfNextBtn) pdfNextBtn.disabled = pageNum >= currentPdfDoc.numPages;
+  } catch (error) {
+    console.error('Error rendering PDF page:', error);
+    throw error;
+  }
+}
+
+function updatePdfPageInfo() {
+  const pageInfo = document.getElementById('pdf-page-info');
+  if (pageInfo && currentPdfDoc) {
+    pageInfo.textContent = `Page ${currentPdfPageNum} of ${currentPdfDoc.numPages}`;
+  }
+}
+
+// Close preview panel
+function closePreviewPanel() {
+  const previewPanel = document.getElementById('preview-panel');
+  if (previewPanel) {
+    previewPanel.classList.remove('active');
   }
 }
 
@@ -746,6 +1422,52 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Truncate file path intelligently
+function truncateFilePath(filePath, maxLength = 50) {
+  if (!filePath || filePath.length <= maxLength) {
+    return filePath;
+  }
+  
+  // Try to show beginning and end of path
+  const parts = filePath.split(/[\\/]/);
+  if (parts.length > 2) {
+    // Show first part, ellipsis, and last 2 parts
+    const firstPart = parts[0];
+    const lastParts = parts.slice(-2).join('/');
+    const availableLength = maxLength - 3; // 3 for ellipsis
+    const firstLength = Math.min(firstPart.length, Math.floor(availableLength * 0.4));
+    const lastLength = Math.min(lastParts.length, availableLength - firstLength);
+    
+    if (firstLength + lastLength < availableLength) {
+      return firstPart.substring(0, firstLength) + '...' + lastParts.substring(lastParts.length - lastLength);
+    }
+  }
+  
+  // Fallback: just truncate from end
+  return filePath.substring(0, maxLength - 3) + '...';
+}
+
+// Truncate file name if too long
+function truncateFileName(fileName, maxLength = 40) {
+  if (!fileName || fileName.length <= maxLength) {
+    return fileName;
+  }
+  
+  // Keep extension, truncate name
+  const lastDot = fileName.lastIndexOf('.');
+  if (lastDot > 0 && lastDot < fileName.length - 1) {
+    const name = fileName.substring(0, lastDot);
+    const ext = fileName.substring(lastDot);
+    const maxNameLength = maxLength - ext.length - 3; // 3 for ellipsis
+    if (maxNameLength > 0) {
+      return name.substring(0, maxNameLength) + '...' + ext;
+    }
+  }
+  
+  // No extension or can't fit, just truncate
+  return fileName.substring(0, maxLength - 3) + '...';
 }
 
 function showError(message) {
@@ -783,9 +1505,57 @@ async function loadSettings() {
           valueDisplay.textContent = maxSearchResults;
         }
       }
+      
+      // Load AI settings
+      const aiEnabledCheckbox = document.getElementById('ai-features-enabled');
+      const aiSettingsContainer = document.getElementById('ai-settings-container');
+      const aiProviderSelect = document.getElementById('ai-provider-select');
+      const ollamaModelInput = document.getElementById('ollama-model-input');
+      const apiKeyInput = document.getElementById('api-key-input');
+      const ollamaSettings = document.getElementById('ollama-settings');
+      const apiKeySettings = document.getElementById('api-key-settings');
+      
+      if (aiEnabledCheckbox) {
+        // Explicitly set the checkbox state from settings
+        // Use strict boolean check to avoid falsy value issues
+        const aiEnabled = settings.ai_features_enabled === true;
+        aiEnabledCheckbox.checked = aiEnabled;
+        console.log('Loading AI settings:', {
+            ai_features_enabled: settings.ai_features_enabled,
+            checkbox_checked: aiEnabledCheckbox.checked,
+            settings_object: settings
+        });
+        if (aiSettingsContainer) {
+          aiSettingsContainer.style.display = aiEnabledCheckbox.checked ? 'block' : 'none';
+        }
+      }
+      
+      if (aiProviderSelect && settings.ai_provider) {
+        aiProviderSelect.value = settings.ai_provider;
+        updateAiProviderUI(settings.ai_provider);
+      }
+      
+      if (ollamaModelInput && settings.ollama_model) {
+        ollamaModelInput.value = settings.ollama_model;
+      }
+      
+      // Don't load API key (security - backend doesn't send it)
     }
   } catch (error) {
     console.error('Failed to load settings:', error);
+  }
+}
+
+function updateAiProviderUI(provider) {
+  const ollamaSettings = document.getElementById('ollama-settings');
+  const apiKeySettings = document.getElementById('api-key-settings');
+  
+  if (provider === 'ollama') {
+    if (ollamaSettings) ollamaSettings.style.display = 'block';
+    if (apiKeySettings) apiKeySettings.style.display = 'none';
+  } else {
+    if (ollamaSettings) ollamaSettings.style.display = 'none';
+    if (apiKeySettings) apiKeySettings.style.display = 'block';
   }
 }
 
@@ -899,6 +1669,24 @@ if (maxResultsSlider && maxResultsValue) {
     });
 }
 
+// Set up AI settings UI handlers
+const aiEnabledCheckbox = document.getElementById('ai-features-enabled');
+if (aiEnabledCheckbox) {
+    aiEnabledCheckbox.addEventListener('change', (e) => {
+        const aiSettingsContainer = document.getElementById('ai-settings-container');
+        if (aiSettingsContainer) {
+            aiSettingsContainer.style.display = e.target.checked ? 'block' : 'none';
+        }
+    });
+}
+
+const aiProviderSelect = document.getElementById('ai-provider-select');
+if (aiProviderSelect) {
+    aiProviderSelect.addEventListener('change', (e) => {
+        updateAiProviderUI(e.target.value);
+    });
+}
+
 const saveSettingsBtn = document.getElementById('save-settings');
 if (saveSettingsBtn) {
     saveSettingsBtn.addEventListener('click', async () => {
@@ -911,23 +1699,99 @@ if (saveSettingsBtn) {
         // Get max search results from slider
         const maxResults = maxResultsSlider ? parseInt(maxResultsSlider.value) : maxSearchResults;
         
+        // Get AI settings - always read current checkbox state
+        const aiEnabled = aiEnabledCheckbox ? aiEnabledCheckbox.checked : false;
+        const aiProvider = aiProviderSelect ? aiProviderSelect.value : 'ollama';
+        const ollamaModel = document.getElementById('ollama-model-input')?.value || null;
+        const apiKey = document.getElementById('api-key-input')?.value || null;
+        
+        // Disable save button and show loading state
+        saveSettingsBtn.disabled = true;
+        saveSettingsBtn.textContent = 'Saving...';
+        if (messageDiv) {
+            messageDiv.textContent = '';
+            messageDiv.className = 'settings-message';
+        }
+        
+        console.log('[FRONTEND] Saving settings:', {
+            performance_mode: selectedMode,
+            max_search_results: maxResults,
+            ai_features_enabled: aiEnabled,
+            ai_provider: aiProvider,
+            has_ollama_model: !!ollamaModel,
+            has_api_key: !!apiKey
+        });
+        
         try {
-            const response = await window.electronAPI.apiRequest('PUT', '/api/settings', {
+            const requestData = {
                 performance_mode: selectedMode,
-                max_search_results: maxResults
-            });
+                max_search_results: maxResults,
+                ai_features_enabled: aiEnabled, // Always send the current checkbox state
+                ai_provider: aiProvider,
+            };
+            
+            if (ollamaModel) {
+                requestData.ollama_model = ollamaModel;
+            }
+            
+            if (apiKey) {
+                requestData.api_key = apiKey;
+            }
+            
+            console.log('[FRONTEND] Sending request data:', JSON.stringify(requestData, null, 2));
+            
+            const response = await window.electronAPI.apiRequest('PUT', '/api/settings', requestData);
+            
+            console.log('[FRONTEND] Received response:', JSON.stringify(response, null, 2));
             
             if (response.success) {
                 maxSearchResults = maxResults; // Update local variable
-                messageDiv.textContent = 'Settings applied! Backend will adapt on next index.';
-                messageDiv.style.color = 'var(--accent-primary)';
+                
+                // Show success message
+                if (messageDiv) {
+                    messageDiv.textContent = '✓ Settings saved successfully!';
+                    messageDiv.className = 'settings-message success';
+                }
+                
+                console.log('[FRONTEND] Settings saved successfully!');
+                
+                // Reload settings to verify they were saved correctly
+                setTimeout(async () => {
+                    console.log('[FRONTEND] Reloading settings to verify...');
+                    const verifySettings = await window.electronAPI.apiRequest('GET', '/api/settings');
+                    console.log('[FRONTEND] Verified settings:', {
+                        ai_features_enabled: verifySettings.ai_features_enabled,
+                        ai_provider: verifySettings.ai_provider,
+                        performance_mode: verifySettings.performance_mode
+                    });
+                    
+                    // Update UI with verified settings
+                    if (aiEnabledCheckbox && verifySettings.ai_features_enabled !== undefined) {
+                        const verifiedEnabled = verifySettings.ai_features_enabled === true;
+                        console.log('[FRONTEND] Setting checkbox to:', verifiedEnabled);
+                        aiEnabledCheckbox.checked = verifiedEnabled;
+                        if (aiSettingsContainer) {
+                            aiSettingsContainer.style.display = verifiedEnabled ? 'block' : 'none';
+                        }
+                    }
+                }, 500);
             } else {
-                messageDiv.textContent = 'Error: ' + (response.error || 'Unknown error');
-                messageDiv.style.color = '#dc2626';
+                console.error('[FRONTEND] Save failed - response.success was false');
+                if (messageDiv) {
+                    messageDiv.textContent = 'Failed to save settings';
+                    messageDiv.className = 'settings-message error';
+                }
             }
         } catch (error) {
-            messageDiv.textContent = 'Connection error: ' + error.message;
-            messageDiv.style.color = '#dc2626';
+            console.error('[FRONTEND] Error saving settings:', error);
+            if (messageDiv) {
+                messageDiv.textContent = `Error: ${error?.message || error?.toString() || 'Unknown error'}`;
+                messageDiv.className = 'settings-message error';
+            }
+        } finally {
+            // Re-enable save button
+            saveSettingsBtn.disabled = false;
+            saveSettingsBtn.textContent = 'Save Settings';
         }
     });
 }
@@ -1066,6 +1930,13 @@ let currentBrowserPath = '';
 let selectedBrowserItem = null;
 let specialFolders = {};
 
+// Sort settings per page
+let sortSettings = {
+    desktop: { sort: 'name', order: 'asc' },
+    downloads: { sort: 'name', order: 'asc' },
+    documents: { sort: 'name', order: 'asc' }
+};
+
 // Load special folders on startup
 async function loadSpecialFolders() {
     try {
@@ -1075,6 +1946,179 @@ async function loadSpecialFolders() {
         }
     } catch (error) {
         console.error('Failed to load special folders:', error);
+    }
+}
+
+// Tree view state
+let treeViewVisible = false;
+let currentTreeRoot = null;
+
+// Load and render tree view
+async function loadTreeView(rootPath = null) {
+    const treeContainer = document.getElementById('tree-view-container');
+    if (!treeContainer) return;
+    
+    try {
+        const path = rootPath || (specialFolders.home || '::this-pc');
+        const url = `/api/files/tree?path=${encodeURIComponent(path)}&depth=2`;
+        const response = await window.electronAPI.apiRequest('GET', url);
+        
+        if (response.success && response.data && response.data.nodes) {
+            currentTreeRoot = path;
+            renderTreeNodes(response.data.nodes, treeContainer, 0);
+        }
+    } catch (error) {
+        console.error('Failed to load tree view:', error);
+    }
+}
+
+// Render tree nodes recursively
+function renderTreeNodes(nodes, container, depth) {
+    // Clear container if depth is 0 (root level)
+    if (depth === 0) {
+        container.innerHTML = '';
+    }
+    
+    nodes.forEach(node => {
+        const nodeElement = createTreeNodeElement(node, depth);
+        container.appendChild(nodeElement);
+    });
+}
+
+// Create a tree node element
+function createTreeNodeElement(node, depth) {
+    const nodeDiv = document.createElement('div');
+    nodeDiv.className = 'tree-node';
+    nodeDiv.dataset.path = node.path;
+    nodeDiv.dataset.isDirectory = node.is_directory;
+    
+    const itemDiv = document.createElement('div');
+    itemDiv.className = 'tree-node-item';
+    itemDiv.style.paddingLeft = `${depth * 1}rem`;
+    
+    // Expand/collapse button (only for directories)
+    const expandBtn = document.createElement('div');
+    expandBtn.className = 'tree-node-expand';
+    if (node.is_directory) {
+        if (node.children && node.children.length > 0) {
+            expandBtn.textContent = '▶';
+            expandBtn.classList.toggle('expanded', node.expanded);
+        } else if (node.children === null) {
+            // Not loaded yet - show placeholder
+            expandBtn.textContent = '▶';
+        } else {
+            // Empty directory
+            expandBtn.textContent = '';
+        }
+    } else {
+        expandBtn.textContent = '';
+    }
+    
+    // Icon
+    const iconDiv = document.createElement('div');
+    iconDiv.className = 'tree-node-icon';
+    if (node.is_directory) {
+        iconDiv.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+    } else {
+        const iconData = getFileIcon(node.name);
+        iconDiv.innerHTML = iconData.icon;
+    }
+    
+    // Name
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'tree-node-name';
+    nameDiv.textContent = node.name;
+    nameDiv.title = node.path;
+    
+    itemDiv.appendChild(expandBtn);
+    itemDiv.appendChild(iconDiv);
+    itemDiv.appendChild(nameDiv);
+    
+    // Children container
+    const childrenDiv = document.createElement('div');
+    childrenDiv.className = 'tree-node-children';
+    if (node.expanded && node.children) {
+        childrenDiv.classList.add('expanded');
+        node.children.forEach(child => {
+            childrenDiv.appendChild(createTreeNodeElement(child, depth + 1));
+        });
+    }
+    
+    // Click handler
+    itemDiv.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        
+        if (node.is_directory) {
+            // Toggle expand/collapse
+            if (node.children === null) {
+                // Lazy load children
+                try {
+                    const url = `/api/files/tree?path=${encodeURIComponent(node.path)}&depth=2`;
+                    const response = await window.electronAPI.apiRequest('GET', url);
+                    if (response.success && response.data && response.data.nodes) {
+                        node.children = response.data.nodes;
+                        node.expanded = true;
+                        // Re-render this node's children
+                        renderTreeNodes(node.children, childrenDiv, depth + 1);
+                        childrenDiv.classList.add('expanded');
+                        expandBtn.classList.add('expanded');
+                    }
+                } catch (error) {
+                    console.error('Failed to load tree children:', error);
+                }
+            } else {
+                // Toggle existing children
+                node.expanded = !node.expanded;
+                childrenDiv.classList.toggle('expanded', node.expanded);
+                expandBtn.classList.toggle('expanded', node.expanded);
+            }
+        } else {
+            // File clicked - open preview
+            await openPreviewPanel(node.path);
+        }
+    });
+    
+    // Double click to navigate (for directories)
+    if (node.is_directory) {
+        itemDiv.addEventListener('dblclick', async (e) => {
+            e.stopPropagation();
+            // Navigate to this folder in the current page
+            const activePage = document.querySelector('.page.active');
+            if (activePage) {
+                const pageId = activePage.id;
+                if (pageId.includes('-page')) {
+                    const pageType = pageId.replace('-page', '');
+                    await loadFolderFiles(node.path, `${pageType}-file-list`, pageType);
+                }
+            }
+        });
+    }
+    
+    nodeDiv.appendChild(itemDiv);
+    nodeDiv.appendChild(childrenDiv);
+    
+    return nodeDiv;
+}
+
+// Toggle tree view visibility
+function toggleTreeView() {
+    const treeSidebar = document.getElementById('tree-view-sidebar');
+    const treeShowBtn = document.getElementById('tree-view-show-btn');
+    
+    if (!treeSidebar) return;
+    
+    treeViewVisible = !treeViewVisible;
+    
+    if (treeViewVisible) {
+        treeSidebar.style.display = 'flex';
+        if (treeShowBtn) treeShowBtn.style.display = 'none';
+        // Load tree if not loaded
+        if (!currentTreeRoot) {
+            loadTreeView();
+        }
+    } else {
+        treeSidebar.style.display = 'none';
+        if (treeShowBtn) treeShowBtn.style.display = 'flex';
     }
 }
 
@@ -1097,7 +2141,7 @@ async function loadFolderPage(pageType) {
             fileListId = 'documents-file-list';
             break;
         case 'other-files':
-            folderPath = specialFolders.home;
+            folderPath = '::this-pc'; // Show "This PC" (drives/root directories)
             fileListId = 'other-files-file-list';
             break;
     }
@@ -1116,24 +2160,49 @@ async function loadFolderPage(pageType) {
                 folderPath = specialFolders.documents;
                 break;
             case 'other-files':
-                folderPath = specialFolders.home;
+                folderPath = '::this-pc'; // Always show "This PC" (drives/root directories)
                 break;
         }
     }
     
     if (folderPath && fileListId) {
-        await loadFolderFiles(folderPath, fileListId);
+        // Check if there's a search query for this page
+        const searchInput = document.getElementById(`file-search-${pageType}`);
+        const searchQuery = searchInput ? searchInput.value.trim() : null;
+        await loadFolderFiles(folderPath, fileListId, pageType, searchQuery);
     }
 }
 
 // Load files for a specific folder and display them
-async function loadFolderFiles(folderPath, fileListId) {
+async function loadFolderFiles(folderPath, fileListId, pageType = null, searchQuery = null) {
     try {
-        const response = await window.electronAPI.apiRequest('GET', `/api/files/browse?path=${encodeURIComponent(folderPath)}`);
-        if (response.success && response.data) {
-            displayFolderFiles(response.data.items, fileListId);
+        let response;
+        
+        if (searchQuery && searchQuery.trim()) {
+            // Use search endpoint
+            const url = `/api/files/search?query=${encodeURIComponent(searchQuery)}&path=${encodeURIComponent(folderPath)}&limit=100`;
+            response = await window.electronAPI.apiRequest('GET', url);
+            if (response.success && response.data) {
+                displayFolderFiles(response.data.results, fileListId);
+            } else {
+                showToast('Search failed: ' + (response.error || 'Unknown error'), 'error');
+            }
         } else {
-            showToast('Failed to load folder: ' + (response.error || 'Unknown error'), 'error');
+            // Use browse endpoint with sorting
+            let sort = 'name';
+            let order = 'asc';
+            if (pageType && sortSettings[pageType]) {
+                sort = sortSettings[pageType].sort;
+                order = sortSettings[pageType].order;
+            }
+            
+            const url = `/api/files/browse?path=${encodeURIComponent(folderPath)}&sort=${sort}&order=${order}`;
+            response = await window.electronAPI.apiRequest('GET', url);
+            if (response.success && response.data) {
+                displayFolderFiles(response.data.items, fileListId);
+            } else {
+                showToast('Failed to load folder: ' + (response.error || 'Unknown error'), 'error');
+            }
         }
     } catch (error) {
         console.error('Failed to load folder:', error);
@@ -1151,12 +2220,7 @@ function displayFolderFiles(items, fileListId) {
         return;
     }
 
-    // Sort directories first, then files, both alphabetically
-    items.sort((a, b) => {
-        if (a.is_directory && !b.is_directory) return -1;
-        if (!a.is_directory && b.is_directory) return 1;
-        return a.name.localeCompare(b.name);
-    });
+    // Don't sort here - backend already sorted the items according to user's sort preferences
 
     // Determine if list view
     const isListView = viewPreferences.view === 'list';
@@ -1194,27 +2258,70 @@ function displayFolderFiles(items, fileListId) {
 
     // Add click handlers
     fileList.querySelectorAll('.file-item').forEach(item => {
+        let clickTimer = null;
+        
         item.addEventListener('click', async () => {
             const filePath = item.dataset.path;
             const isDir = item.dataset.isDir === 'true';
             
+            // Clear any existing timer
+            if (clickTimer) {
+                clearTimeout(clickTimer);
+                clickTimer = null;
+            }
+            
             if (isDir) {
-                // For directories, navigate into them (could be enhanced later)
-                showToast('Double-click to open folder', 'info');
+                // For directories, show hint on single click
+                // Navigation happens on double click
+                return;
             } else {
-                // Open file
-                await openFile(filePath);
+                // Single click on file: open preview panel
+                clickTimer = setTimeout(async () => {
+                    await openPreviewPanel(filePath);
+                }, 200); // Small delay to distinguish from double click
             }
         });
         
         item.addEventListener('dblclick', async () => {
+            // Clear single click timer
+            if (clickTimer) {
+                clearTimeout(clickTimer);
+                clickTimer = null;
+            }
+            
             const filePath = item.dataset.path;
             const isDir = item.dataset.isDir === 'true';
             
             if (isDir) {
-                // Navigate into directory - for now just show a message
-                showToast('Folder navigation coming soon', 'info');
+                // Double click on folder: navigate into folder
+                // Get current folder path from the page context
+                const currentPage = document.querySelector('.page.active');
+                let currentFolderPath = null;
+                
+                if (currentPage) {
+                    const pageId = currentPage.id;
+                    if (pageId === 'desktop-page' && specialFolders.desktop) {
+                        currentFolderPath = specialFolders.desktop;
+                    } else if (pageId === 'downloads-page' && specialFolders.downloads) {
+                        currentFolderPath = specialFolders.downloads;
+                    } else if (pageId === 'documents-page' && specialFolders.documents) {
+                        currentFolderPath = specialFolders.documents;
+                    } else if (pageId === 'other-files-page' && specialFolders.home) {
+                        currentFolderPath = specialFolders.home;
+                    }
+                }
+                
+                // Navigate to the folder
+                await loadFolderFiles(filePath, fileListId);
+                
+                // Update breadcrumb
+                const currentFolder = document.getElementById('current-folder');
+                if (currentFolder) {
+                    const folderName = filePath.split(/[\\/]/).pop();
+                    currentFolder.textContent = folderName;
+                }
             } else {
+                // Double click on file: open externally
                 await openFile(filePath);
             }
         });
@@ -1471,3 +2578,124 @@ loadSpecialFolders();
 loadSearchHistory();
 loadViewPreferences();
 applyViewPreferences();
+
+// Set up preview panel close button
+const previewCloseBtn = document.getElementById('preview-close-btn');
+if (previewCloseBtn) {
+    previewCloseBtn.addEventListener('click', closePreviewPanel);
+}
+
+// Close preview panel when clicking outside (optional)
+const previewPanel = document.getElementById('preview-panel');
+if (previewPanel) {
+    previewPanel.addEventListener('click', (e) => {
+        if (e.target === previewPanel) {
+            closePreviewPanel();
+        }
+    });
+}
+
+// Set up PDF navigation buttons
+const pdfPrevBtn = document.getElementById('pdf-prev-page');
+const pdfNextBtn = document.getElementById('pdf-next-page');
+
+if (pdfPrevBtn) {
+    pdfPrevBtn.addEventListener('click', async () => {
+        if (currentPdfDoc && currentPdfPageNum > 1) {
+            currentPdfPageNum--;
+            const previewPdf = document.getElementById('preview-pdf');
+            await renderPdfPage(currentPdfPageNum, previewPdf);
+            updatePdfPageInfo();
+        }
+    });
+}
+
+if (pdfNextBtn) {
+    pdfNextBtn.addEventListener('click', async () => {
+        if (currentPdfDoc && currentPdfDoc.numPages > currentPdfPageNum) {
+            currentPdfPageNum++;
+            const previewPdf = document.getElementById('preview-pdf');
+            await renderPdfPage(currentPdfPageNum, previewPdf);
+            updatePdfPageInfo();
+        }
+    });
+}
+
+// Set up tree view toggle buttons
+const treeViewToggle = document.getElementById('tree-view-toggle');
+const treeViewShowBtn = document.getElementById('tree-view-show-btn');
+
+if (treeViewToggle) {
+    treeViewToggle.addEventListener('click', toggleTreeView);
+}
+
+if (treeViewShowBtn) {
+    treeViewShowBtn.addEventListener('click', toggleTreeView);
+}
+
+// Set up sort controls and search for each page
+['desktop', 'downloads', 'documents'].forEach(pageType => {
+    const sortSelect = document.getElementById(`sort-select-${pageType}`);
+    const sortOrderBtn = document.getElementById(`sort-order-${pageType}`);
+    const searchInput = document.getElementById(`file-search-${pageType}`);
+    
+    if (sortSelect) {
+        sortSelect.addEventListener('change', async (e) => {
+            sortSettings[pageType].sort = e.target.value;
+            // Reload current folder with new sort
+            const currentPage = document.querySelector('.page.active');
+            if (currentPage && currentPage.id === `${pageType}-page`) {
+                await loadFolderPage(pageType);
+            }
+        });
+    }
+    
+    if (sortOrderBtn) {
+        sortOrderBtn.addEventListener('click', async () => {
+            const currentOrder = sortOrderBtn.dataset.order;
+            const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+            sortOrderBtn.dataset.order = newOrder;
+            sortSettings[pageType].order = newOrder;
+            
+            // Update icon rotation
+            const svg = sortOrderBtn.querySelector('svg');
+            if (svg) {
+                svg.style.transform = newOrder === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)';
+            }
+            
+            // Reload current folder with new order
+            const currentPage = document.querySelector('.page.active');
+            if (currentPage && currentPage.id === `${pageType}-page`) {
+                await loadFolderPage(pageType);
+            }
+        });
+    }
+    
+    if (searchInput) {
+        let searchTimeout = null;
+        searchInput.addEventListener('input', (e) => {
+            // Debounce search
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+            searchTimeout = setTimeout(async () => {
+                const currentPage = document.querySelector('.page.active');
+                if (currentPage && currentPage.id === `${pageType}-page`) {
+                    await loadFolderPage(pageType);
+                }
+            }, 300);
+        });
+        
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                if (searchTimeout) {
+                    clearTimeout(searchTimeout);
+                }
+                const currentPage = document.querySelector('.page.active');
+                if (currentPage && currentPage.id === `${pageType}-page`) {
+                    loadFolderPage(pageType);
+                }
+            }
+        });
+    }
+});

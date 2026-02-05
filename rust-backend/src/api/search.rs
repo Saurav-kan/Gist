@@ -93,6 +93,20 @@ pub async fn search_files(
     State(state): State<AppState>,
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, axum::http::StatusCode> {
+    eprintln!("=== Search Request ===");
+    eprintln!("Query: '{}'", request.query);
+    eprintln!("Limit: {:?}", request.limit);
+    eprintln!("Filters: {:?}", request.filters);
+    
+    // Validate query is not empty
+    let query = request.query.trim();
+    if query.is_empty() {
+        eprintln!("ERROR: Empty query received");
+        return Ok(Json(SearchResponse {
+            results: Vec::new(),
+        }));
+    }
+    
     // Use config's max_search_results as default, but allow override up to 200
     let default_limit = state.config.max_search_results;
     let limit = request.limit.unwrap_or(default_limit).min(200);
@@ -102,7 +116,8 @@ pub async fn search_files(
         state.config.embedding_model.clone()
     );
     
-    let query_embedding = embedding_service.generate_embedding(&request.query)
+    eprintln!("Generating embedding for query: '{}'", query);
+    let query_embedding = embedding_service.generate_embedding(query)
         .await
         .map_err(|e| {
             eprintln!("Error generating query embedding: {}", e);
@@ -115,8 +130,9 @@ pub async fn search_files(
     let mut results: Vec<(crate::storage::FileMetadata, f32)> = Vec::new();
     
     // Calculate query word count for weighting
-    let query_words: Vec<&str> = request.query.split_whitespace().collect();
+    let query_words: Vec<&str> = query.split_whitespace().collect();
     let query_word_count = query_words.len();
+    eprintln!("Query word count: {}", query_word_count);
     
     let hnsw_guard = state.hnsw_index.read().await;
     if let Some(ref hnsw) = *hnsw_guard {
@@ -189,9 +205,32 @@ pub async fn search_files(
         results = all_results;
     }
 
-    // Apply filters if provided
+    // Apply filters if provided and not empty
     if let Some(ref filters) = request.filters {
-        results = apply_filters(results, filters);
+        // Only apply filters if at least one filter is actually set
+        let has_any_filters = filters.date_range.is_some() 
+            || filters.file_types.is_some() 
+            || filters.folder_paths.is_some();
+        
+        if has_any_filters {
+            eprintln!("Applying filters: date_range={:?}, file_types={:?}, folder_paths={:?}", 
+                filters.date_range.is_some(), 
+                filters.file_types.is_some(), 
+                filters.folder_paths.is_some());
+            let before_count = results.len();
+            results = apply_filters(results, filters);
+            eprintln!("Filtered results: {} -> {} (removed {})", before_count, results.len(), before_count - results.len());
+        } else {
+            eprintln!("Filters provided but all empty, skipping filter application");
+        }
+    } else {
+        eprintln!("No filters provided");
+    }
+
+    eprintln!("Results before sorting: {}", results.len());
+    if !results.is_empty() {
+        eprintln!("Sample similarities before sorting: {:?}", 
+            results.iter().take(5).map(|(m, s)| (m.file_name.clone(), *s)).collect::<Vec<_>>());
     }
 
     // Sort by similarity (descending)
@@ -210,6 +249,13 @@ pub async fn search_files(
             }
         })
         .collect();
+
+    eprintln!("Returning {} search results", search_results.len());
+    if !search_results.is_empty() {
+        eprintln!("Top result similarity: {:.3} ({:.1}%)", 
+            search_results[0].similarity, 
+            search_results[0].similarity * 100.0);
+    }
 
     Ok(Json(SearchResponse {
         results: search_results,

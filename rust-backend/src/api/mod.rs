@@ -5,3 +5,6 @@ pub mod index;
 pub mod files;
 pub mod files_browser;
 pub mod parse;
+pub mod tree;
+pub mod preview;
+pub mod ai;
