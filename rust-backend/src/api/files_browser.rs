@@ -289,7 +289,7 @@ pub async fn create_folder(
                 "path": new_folder_path.to_string_lossy().to_string()
             })))
         }
-        Err(e) => {
+        Err(_e) => {
             Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
         }
     }

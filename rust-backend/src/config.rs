@@ -25,6 +25,10 @@ pub struct AppConfig {
     pub gemini_model: Option<String>,
     #[serde(default)]
     pub api_key: Option<String>,
+    #[serde(default = "default_action_search_parsing_model")]
+    pub action_search_parsing_model: String,
+    #[serde(default = "default_action_search_analysis_model")]
+    pub action_search_analysis_model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -48,6 +52,14 @@ fn default_max_search_results() -> usize {
     100
 }
 
+fn default_action_search_parsing_model() -> String {
+    "ollama".to_string()
+}
+
+fn default_action_search_analysis_model() -> String {
+    "same-as-main".to_string()
+}
+
 fn default_max_context_tokens() -> usize {
     1500 // Safe default for most Ollama embedding models
 }
@@ -65,6 +77,8 @@ pub struct FileTypeFilters {
     pub include_docx: bool,
     pub include_text: bool,
     pub include_xlsx: bool,
+    #[serde(default)]
+    pub excluded_extensions: Vec<String>,
 }
 
 impl Default for AppConfig {
@@ -78,6 +92,7 @@ impl Default for AppConfig {
                 include_docx: true,
                 include_text: true,
                 include_xlsx: true,
+                excluded_extensions: Vec::new(),
             },
             chunk_size: 512,
             max_context_tokens: 1500,
@@ -88,6 +103,8 @@ impl Default for AppConfig {
             ollama_model: None,
             gemini_model: None,
             api_key: None,
+            action_search_parsing_model: "ollama".to_string(),
+            action_search_analysis_model: "same-as-main".to_string(),
         }
     }
 }

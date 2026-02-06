@@ -3,7 +3,6 @@ use axum::{
     response::Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use crate::AppState;
 use crate::config::AiProvider;
 
@@ -98,11 +97,13 @@ pub async fn summarize_document(
         AiProvider::Ollama => {
             let model = config.ollama_model.as_deref()
                 .unwrap_or("llama3.2:1b");
+            eprintln!("[AI] Calling Ollama (model: {}) for summary", model);
             call_ollama_generate(model, &prompt, false).await
         }
         AiProvider::GreenPT => {
             let api_key = config.api_key.as_ref()
                 .ok_or_else(|| axum::http::StatusCode::BAD_REQUEST)?;
+            eprintln!("[AI] Calling GreenPT for summary");
             call_greenpt_chat_single(api_key, &prompt).await
         }
         AiProvider::OpenAI => {
@@ -117,6 +118,7 @@ pub async fn summarize_document(
                 .ok_or_else(|| axum::http::StatusCode::BAD_REQUEST)?;
             let model = config.gemini_model.as_deref()
                 .unwrap_or("gemini-pro");
+            eprintln!("[AI] Calling Gemini (model: {}) for summary", model);
             call_gemini_chat_single(api_key, model, &prompt).await
         }
     };
@@ -269,6 +271,7 @@ async fn get_file_content_for_ai(file_path: &str) -> Result<String, Box<dyn std:
         include_docx: true,
         include_text: true,
         include_xlsx: true,
+        excluded_extensions: Vec::new(),
     };
     let registry = ParserRegistry::new(&filters);
     
@@ -307,7 +310,9 @@ async fn call_ollama_generate(
         response: String,
     }
 
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()?;
     let url = format!("{}/api/generate", OLLAMA_BASE_URL);
     
     let request_body = GenerateRequest {
@@ -331,7 +336,7 @@ async fn call_ollama_generate(
 }
 
 // Call Ollama chat endpoint
-async fn call_ollama_chat(
+pub(crate) async fn call_ollama_chat(
     model: &str,
     messages: &[ChatMessage],
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -355,7 +360,9 @@ async fn call_ollama_chat(
         message: ChatMessageResponse,
     }
 
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()?;
     let url = format!("{}/api/chat", OLLAMA_BASE_URL);
     
     let request_body = ChatRequest {
@@ -379,7 +386,7 @@ async fn call_ollama_chat(
 }
 
 // Call GreenPT API (OpenAI-compatible endpoint)
-async fn call_greenpt_chat(
+pub(crate) async fn call_greenpt_chat(
     api_key: &str,
     messages: &[ChatMessage],
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -417,7 +424,9 @@ async fn call_greenpt_chat(
         choices: Vec<Choice>,
     }
 
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()?;
     let url = format!("{}/chat/completions", GREENPT_BASE_URL);
     
     // Convert messages to GreenPT format
@@ -524,7 +533,7 @@ pub async fn get_gemini_models(
 }
 
 // Call Gemini API for chat
-async fn call_gemini_chat(
+pub(crate) async fn call_gemini_chat(
     api_key: &str,
     model: &str,
     messages: &[ChatMessage],
@@ -569,7 +578,9 @@ async fn call_gemini_chat(
         candidates: Vec<GeminiCandidate>,
     }
 
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()?;
     let url = format!("{}/models/{}:generateContent", GEMINI_BASE_URL, model);
     
     // Convert messages to Gemini format
@@ -636,6 +647,8 @@ async fn call_gemini_chat(
         .json(&request_body)
         .send()
         .await?;
+    
+    eprintln!("[AI] Gemini response status: {}", response.status());
 
     let status = response.status();
     if !status.is_success() {

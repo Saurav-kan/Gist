@@ -30,6 +30,7 @@ struct FileTypeFiltersResponse {
     include_docx: bool,
     include_text: bool,
     include_xlsx: bool,
+    excluded_extensions: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +55,7 @@ pub struct FileTypeFiltersRequest {
     include_docx: Option<bool>,
     include_text: Option<bool>,
     include_xlsx: Option<bool>,
+    excluded_extensions: Option<Vec<String>>,
 }
 
 pub async fn get_settings(State(state): State<AppState>) -> Json<SettingsResponse> {
@@ -76,6 +78,7 @@ pub async fn get_settings(State(state): State<AppState>) -> Json<SettingsRespons
             include_docx: config.file_type_filters.include_docx,
             include_text: config.file_type_filters.include_text,
             include_xlsx: config.file_type_filters.include_xlsx,
+            excluded_extensions: config.file_type_filters.excluded_extensions.clone(),
         },
         chunk_size: config.chunk_size,
         max_context_tokens: config.max_context_tokens,
@@ -161,6 +164,9 @@ pub async fn update_settings(
         if let Some(val) = filters.include_xlsx {
             config.file_type_filters.include_xlsx = val;
         }
+        if let Some(val) = filters.excluded_extensions {
+            config.file_type_filters.excluded_extensions = val;
+        }
     }
 
     if let Some(val) = request.chunk_size {
@@ -235,7 +241,7 @@ pub async fn update_settings(
     
     // Reload config from disk to ensure we have the latest values
     // Then update the in-memory AppState config
-    if let Ok(updated_config) = crate::config::AppConfig::load_or_default().await {
+    if let Ok(_updated_config) = crate::config::AppConfig::load_or_default().await {
         // Replace the config in AppState
         // Since we can't mutate Arc directly, we need to use Arc::make_mut or replace it
         // For now, we'll reload it on next get_settings call, but let's update the state

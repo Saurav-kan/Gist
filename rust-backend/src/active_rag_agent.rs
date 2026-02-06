@@ -1,7 +1,13 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use crate::config::AiProvider;
 use crate::api::ai::{call_ollama_chat, call_greenpt_chat, call_gemini_chat, ChatMessage};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecomposedIntent {
+    pub vector_query: String,
+    pub action_question: String,
+    pub filters: Option<serde_json::Value>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveRagRequest {
@@ -70,9 +76,10 @@ impl ActiveRagAgent {
 
     pub async fn analyze_documents(
         &self,
-        documents: Vec<(String, String, f32)>, // (file_path, content, relevance_score)
+        documents: Vec<(String, String, f32)>,
         user_question: &str,
         original_query: &str,
+        analysis_model: &str,
     ) -> Result<ActiveRagResponse, Box<dyn std::error::Error>> {
         if documents.is_empty() {
             return Ok(ActiveRagResponse {
@@ -85,45 +92,186 @@ impl ActiveRagAgent {
             });
         }
 
+        eprintln!("[Active RAG Agent] analyze_documents called with {} documents", documents.len());
+        eprintln!("[Active RAG Agent] User question: '{}'", user_question);
+        eprintln!("[Active RAG Agent] Original query: '{}'", original_query);
+        eprintln!("[Active RAG Agent] Analysis model setting: '{}'", analysis_model);
+        
+        // Log document details
+        for (i, (path, content, score)) in documents.iter().enumerate() {
+            let file_name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+            eprintln!("[Active RAG Agent]   Document {}: {} (score: {:.4}, content: {} chars)", 
+                i + 1, file_name, score, content.len());
+        }
+        
         // Create system prompt for document analysis
         let system_prompt = self.create_analysis_prompt(&documents, user_question, original_query);
+        
+        eprintln!("[Active RAG Agent] === AI PROMPT CREATED ===");
+        eprintln!("[Active RAG Agent] System prompt length: {} chars", system_prompt.len());
+        let prompt_preview = if system_prompt.len() > 500 {
+            &system_prompt[..500]
+        } else {
+            &system_prompt
+        };
+        eprintln!("[Active RAG Agent] System prompt preview:\n{}...", prompt_preview);
+        eprintln!("[Active RAG Agent] ==============================");
 
         // Build conversation messages
-        let mut messages = vec![ChatMessage {
-            role: "system".to_string(),
-            content: system_prompt,
-        }];
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: system_prompt.to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: user_question.to_string(),
+            },
+        ];
 
-        // Add user question
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: user_question.to_string(),
-        });
-
-        // Call appropriate AI provider
-        let ai_response = match self.ai_provider {
-            AiProvider::Ollama => {
+        // Select AI provider based on analysis model setting
+        eprintln!("[Active RAG Agent] Calling AI API with {} messages", messages.len());
+        let ai_response = match analysis_model {
+            "same-as-main" => {
+                eprintln!("[Active RAG Agent] Using 'same-as-main' provider: {:?}", self.ai_provider);
+                // Use the same AI provider as configured for main
+                match self.ai_provider {
+                    AiProvider::Ollama => {
+                        let model = self.ollama_model.as_deref().unwrap_or("llama3.2:1b");
+                        eprintln!("[Active RAG Agent] Calling Ollama with model: {}", model);
+                        call_ollama_chat(model, &messages).await?
+                    }
+                    AiProvider::GreenPT => {
+                        let api_key = self.api_key.as_ref().ok_or("GreenPT API key not configured")?;
+                        eprintln!("[Active RAG Agent] Calling GreenPT");
+                        call_greenpt_chat(api_key, &messages).await?
+                    }
+                    AiProvider::Gemini => {
+                        let api_key = self.api_key.as_ref().ok_or("Gemini API key not configured")?;
+                        let model = self.gemini_model.as_deref().unwrap_or("gemini-pro");
+                        eprintln!("[Active RAG Agent] Calling Gemini with model: {}", model);
+                        call_gemini_chat(api_key, model, &messages).await?
+                    }
+                    AiProvider::OpenAI => return Err("OpenAI provider not yet implemented for Active RAG".into()),
+                }
+            }
+            "ollama" => {
+                // Force use Ollama for analysis
+                // Use configured model if present; default to a fast local model
                 let model = self.ollama_model.as_deref().unwrap_or("llama3.2:1b");
+                eprintln!("[Active RAG Agent] Forcing Ollama with model: {}", model);
                 call_ollama_chat(model, &messages).await?
             }
-            AiProvider::GreenPT => {
-                let api_key = self.api_key.as_ref()
-                    .ok_or("GreenPT API key not configured")?;
-                call_greenpt_chat(api_key, &messages).await?
-            }
-            AiProvider::Gemini => {
-                let api_key = self.api_key.as_ref()
-                    .ok_or("Gemini API key not configured")?;
+            "gemini" => {
+                // Force use Gemini for analysis
+                let api_key = self.api_key.as_ref().ok_or("Gemini API key not configured")?;
                 let model = self.gemini_model.as_deref().unwrap_or("gemini-pro");
+                eprintln!("[Active RAG Agent] Forcing Gemini with model: {}", model);
                 call_gemini_chat(api_key, model, &messages).await?
             }
-            AiProvider::OpenAI => {
-                return Err("OpenAI provider not yet implemented for Active RAG".into());
+            _ => {
+                eprintln!("[Active RAG Agent] ERROR: Unsupported analysis model: {}", analysis_model);
+                return Err(format!("Unsupported analysis model: {}", analysis_model).into());
             }
         };
 
+        eprintln!("[Active RAG Agent] ✓ AI API call completed");
+        eprintln!("[Active RAG Agent] Raw response length: {} chars", ai_response.len());
+        let response_preview = if ai_response.len() > 500 {
+            &ai_response[..500]
+        } else {
+            &ai_response
+        };
+        eprintln!("[Active RAG Agent] Raw response preview:\n{}...", response_preview);
+
         // Parse AI response and create structured response
-        self.parse_ai_response(ai_response, documents, user_question).await
+        eprintln!("[Active RAG Agent] Parsing AI response...");
+        let parsed_response = self.parse_ai_response(ai_response, documents, user_question).await;
+        
+        match &parsed_response {
+            Ok(resp) => {
+                eprintln!("[Active RAG Agent] ✓ Response parsed successfully");
+                eprintln!("[Active RAG Agent] Parsed response - success: {}, answer present: {}, sources: {}", 
+                    resp.success, resp.answer.is_some(), resp.sources.len());
+            }
+            Err(e) => {
+                eprintln!("[Active RAG Agent] ✗ Response parsing failed: {}", e);
+            }
+        }
+        
+        parsed_response
+    }
+
+    pub async fn decompose_intent(
+        &self,
+        user_prompt: &str,
+        original_query: &str,
+        parsing_model: &str,
+    ) -> Result<DecomposedIntent, Box<dyn std::error::Error>> {
+        let system_prompt = "You are an AI assistant that decomposes complex user requests for a file search system. \
+            Your goal is to take a raw prompt and separate it into: \
+            1. vector_query: A clean, concise string for semantic search focusing on the core topic/content. \
+            2. action_question: The specific question or action the user wants to perform on the search results. \
+            3. filters: A JSON object of extracted constraints like file types (e.g., pdf, docx), date ranges, or size. \
+            \
+            Example: 'Give me a random question about limits from my calculus homework' \
+            Output: { \
+              \"vector_query\": \"calculus homework limits\", \
+              \"action_question\": \"Give me a random question from these homework documents\", \
+              \"filters\": { \"file_type\": null } \
+            } \
+            \
+            Please return ONLY a valid JSON object.";
+
+        let user_message = format!(
+            "Analyze this prompt: \"{}\"\nContext (Original Search): \"{}\"",
+            user_prompt, original_query
+        );
+
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: system_prompt.to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: user_message,
+            },
+        ];
+
+        let ai_response = match parsing_model {
+            "ollama" => {
+                // Use configured model if present; default to a fast local model for parsing
+                let model = self.ollama_model.as_deref().unwrap_or("llama3.2:1b");
+                call_ollama_chat(model, &messages).await?
+            }
+            "gemini" => {
+                let api_key = self.api_key.as_ref().ok_or("Gemini API key not configured")?;
+                let model = self.gemini_model.as_deref().unwrap_or("gemini-pro");
+                call_gemini_chat(api_key, model, &messages).await?
+            }
+            _ => {
+                return Err(format!("Unsupported parsing model: {}", parsing_model).into());
+            }
+        };
+
+        // Extract JSON from response (handling potential markdown formatting)
+        let json_str = if let Some(start) = ai_response.find('{') {
+            if let Some(end) = ai_response.rfind('}') {
+                &ai_response[start..=end]
+            } else {
+                &ai_response
+            }
+        } else {
+            &ai_response
+        };
+
+        let decomposed: DecomposedIntent = serde_json::from_str(json_str)?;
+        eprintln!("[Active RAG] Intent Decomposed: {:?}", decomposed);
+        Ok(decomposed)
     }
 
     fn create_analysis_prompt(
@@ -142,12 +290,13 @@ impl ActiveRagAgent {
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown");
 
+            let truncated_content: String = content.chars().take(2000).collect();
             prompt.push_str(&format!(
                 "Document {} ({}): Relevance Score: {:.3}\n{}\n\n",
                 i + 1,
                 file_name,
                 relevance_score,
-                &content[..content.len().min(2000)] // Limit content length
+                truncated_content
             ));
         }
 
@@ -192,12 +341,39 @@ impl ActiveRagAgent {
         documents: Vec<(String, String, f32)>,
         user_question: &str,
     ) -> Result<ActiveRagResponse, Box<dyn std::error::Error>> {
+        eprintln!("[Active RAG Agent] parse_ai_response: Attempting to parse response...");
+        
+        // Try to extract JSON from response (handling markdown code blocks)
+        let json_str = if let Some(start) = ai_response.find('{') {
+            if let Some(end) = ai_response.rfind('}') {
+                let extracted = &ai_response[start..=end];
+                eprintln!("[Active RAG Agent] Extracted JSON substring ({} chars)", extracted.len());
+                extracted
+            } else {
+                eprintln!("[Active RAG Agent] Found '{{' but no matching '}}', using full response");
+                &ai_response
+            }
+        } else {
+            eprintln!("[Active RAG Agent] No '{{' found in response, treating as plain text");
+            &ai_response
+        };
+        
         // Try to parse as JSON first
-        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&ai_response) {
-            return self.create_structured_response(parsed, documents);
+        eprintln!("[Active RAG Agent] Attempting JSON parse...");
+        match serde_json::from_str::<serde_json::Value>(json_str) {
+            Ok(parsed) => {
+                eprintln!("[Active RAG Agent] ✓ JSON parse successful");
+                eprintln!("[Active RAG Agent] Parsed JSON keys: {:?}", parsed.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+                return self.create_structured_response(parsed, documents);
+            }
+            Err(e) => {
+                eprintln!("[Active RAG Agent] ✗ JSON parse failed: {}", e);
+                eprintln!("[Active RAG Agent] Falling back to plain text response");
+            }
         }
 
         // Fallback: create response from plain text
+        eprintln!("[Active RAG Agent] Creating fallback response from plain text");
         self.create_fallback_response(&ai_response, documents, user_question).await
     }
 
@@ -206,21 +382,38 @@ impl ActiveRagAgent {
         parsed: serde_json::Value,
         documents: Vec<(String, String, f32)>,
     ) -> Result<ActiveRagResponse, Box<dyn std::error::Error>> {
+        eprintln!("[Active RAG Agent] create_structured_response: Extracting fields from JSON...");
+        
         let answer = parsed.get("answer")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
+        
+        eprintln!("[Active RAG Agent]   answer field: {}", 
+            if answer.is_some() { "present" } else { "missing" });
+        if let Some(ref ans) = answer {
+            let preview = if ans.len() > 100 { &ans[..100] } else { ans };
+            eprintln!("[Active RAG Agent]   answer preview: '{}...'", preview);
+        }
 
         let confidence = parsed.get("confidence")
             .and_then(|v| v.as_f64())
             .map(|f| f as f32);
+        
+        eprintln!("[Active RAG Agent]   confidence field: {:?}", confidence);
 
         let sources = parsed.get("sources")
             .and_then(|v| v.as_array())
             .map(|arr| {
-                arr.iter().filter_map(|source| {
+                eprintln!("[Active RAG Agent]   sources array found with {} items", arr.len());
+                arr.iter().enumerate().filter_map(|(idx, source)| {
+                    eprintln!("[Active RAG Agent]     Processing source {}...", idx + 1);
                     let file_path = source.get("file_path")?.as_str()?.to_string();
                     let used_in_answer = source.get("used_in_answer")?.as_bool().unwrap_or(false);
                     let relevance_score = source.get("relevance_score")?.as_f64().unwrap_or(0.0) as f32;
+                    
+                    eprintln!("[Active RAG Agent]       file_path: {}", file_path);
+                    eprintln!("[Active RAG Agent]       used_in_answer: {}", used_in_answer);
+                    eprintln!("[Active RAG Agent]       relevance_score: {:.4}", relevance_score);
                     
                     let key_contributions = source.get("key_contributions")
                         .and_then(|v| v.as_array())
@@ -241,13 +434,8 @@ impl ActiveRagAgent {
                                 .file_name()
                                 .and_then(|n| n.to_str())
                         })
-                        .unwrap_or_else(|| {
-                            std::path::Path::new(&file_path)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("unknown")
-                                .to_string()
-                        });
+                        .unwrap_or("unknown")
+                        .to_string();
 
                     // Create excerpt from document content
                     let excerpt = doc_info
@@ -271,16 +459,45 @@ impl ActiveRagAgent {
                 })
                 .collect::<Vec<_>>()
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                eprintln!("[Active RAG Agent]   WARNING: No 'sources' array found in JSON");
+                vec![]
+            });
+        
+        eprintln!("[Active RAG Agent]   Final sources count: {}", sources.len());
+        
+        // If answer is missing but we have documents, use the first document's content as fallback
+        let final_answer = if answer.is_none() && !documents.is_empty() {
+            eprintln!("[Active RAG Agent]   WARNING: No answer in JSON, using first document as fallback");
+            let (_, content, _) = &documents[0];
+            Some(format!("Based on the document '{}': {}", 
+                std::path::Path::new(&documents[0].0)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown"),
+                if content.len() > 1000 {
+                    &content[..1000]
+                } else {
+                    content
+                }
+            ))
+        } else {
+            answer
+        };
 
-        Ok(ActiveRagResponse {
+        let response = ActiveRagResponse {
             success: true,
-            answer,
+            answer: final_answer,
             sources,
             action_performed: Some("Document analysis completed".to_string()),
             confidence,
             error: None,
-        })
+        };
+        
+        eprintln!("[Active RAG Agent] ✓ Structured response created - success: {}, answer present: {}", 
+            response.success, response.answer.is_some());
+        
+        Ok(response)
     }
 
     async fn create_fallback_response(
@@ -289,6 +506,10 @@ impl ActiveRagAgent {
         documents: Vec<(String, String, f32)>,
         _user_question: &str,
     ) -> Result<ActiveRagResponse, Box<dyn std::error::Error>> {
+        eprintln!("[Active RAG Agent] create_fallback_response: Creating response from plain text");
+        eprintln!("[Active RAG Agent]   AI response length: {} chars", ai_response.len());
+        eprintln!("[Active RAG Agent]   Documents count: {}", documents.len());
+        
         // Create sources from available documents
         let sources = documents.iter().enumerate().map(|(i, (path, _, score))| {
             let file_name = std::path::Path::new(path)
@@ -296,6 +517,9 @@ impl ActiveRagAgent {
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
                 .to_string();
+
+            eprintln!("[Active RAG Agent]     Source {}: {} (score: {:.4}, used: {})", 
+                i + 1, file_name, score, i == 0);
 
             ActiveRagSource {
                 file_path: path.clone(),
@@ -308,13 +532,18 @@ impl ActiveRagAgent {
             }
         }).collect();
 
-        Ok(ActiveRagResponse {
+        let response = ActiveRagResponse {
             success: true,
             answer: Some(ai_response.to_string()),
             sources,
             action_performed: Some("Document analysis completed".to_string()),
             confidence: Some(0.7), // Default confidence for fallback
             error: None,
-        })
+        };
+        
+        eprintln!("[Active RAG Agent] ✓ Fallback response created - answer present: {}", 
+            response.answer.is_some());
+        
+        Ok(response)
     }
 }

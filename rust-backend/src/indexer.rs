@@ -279,7 +279,7 @@ impl Indexer {
                 embedding_length: 0,
             };
             
-            self.storage.add_file(&file_metadata, &embedding).await?;
+            self.storage.add_file(&file_metadata, Some(&embedding)).await?;
         } else if total_estimated_tokens <= multiple_embedding_threshold {
             // File is 1x-4x context size - use intelligent sampling
             let sampled_text = Self::intelligent_chunk_sampling(&chunks, max_context);
@@ -299,7 +299,7 @@ impl Indexer {
                 embedding_length: 0,
             };
             
-            self.storage.add_file(&file_metadata, &embedding).await?;
+            self.storage.add_file(&file_metadata, Some(&embedding)).await?;
         } else {
             // File is >4x context size - generate multiple embeddings
             eprintln!("[INDEXING] Very large file '{}' ({:.1}K tokens) - generating multiple embeddings", 
@@ -334,7 +334,7 @@ impl Indexer {
                     embedding_length: 0,
                 };
                 
-                self.storage.add_file(&file_metadata, &embedding).await?;
+                self.storage.add_file(&file_metadata, Some(&embedding)).await?;
             }
             
             eprintln!("[INDEXING] Generated {} embeddings for '{}'", embedding_sections.len(), file_name);
@@ -506,9 +506,7 @@ impl Indexer {
             .unwrap_or("unknown")
             .to_string();
         
-        // Create minimal embedding from filename only
-        let filename_text = format!("file: {}", file_name);
-        let embedding = self.embedding_service.generate_embedding(&filename_text).await?;
+        // Create metadata record without embedding
         
         // Store with metadata
         let file_metadata = FileMetadata {
@@ -528,7 +526,7 @@ impl Indexer {
             embedding_length: 0,
         };
         
-        self.storage.add_file(&file_metadata, &embedding).await?;
+        self.storage.add_file(&file_metadata, None).await?;
         Ok(())
     }
 

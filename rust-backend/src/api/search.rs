@@ -68,25 +68,26 @@ pub struct DateRange {
     pub year: Option<i32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchRequest {
-    query: String,
-    limit: Option<usize>,
+    pub query: String,
+    pub limit: Option<usize>,
     #[serde(default)]
-    filters: Option<FilterOptions>,
+    pub filters: Option<FilterOptions>,
 }
 
-#[derive(Serialize)]
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResponse {
     results: Vec<SearchResult>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
-    file_path: String,
-    file_name: String,
-    similarity: f32,
-    preview: Option<String>,
+    pub file_path: String,
+    pub file_name: String,
+    pub similarity: f32,
+    pub preview: Option<String>,
 }
 
 pub async fn search_files(
@@ -319,6 +320,36 @@ pub async fn search_files(
         
         results = all_results;
     }
+    
+    // Add keyword-based search for files without embeddings
+    eprintln!("[SEARCH] Performing keyword search for files without embeddings");
+    match state.storage.get_files_without_embeddings().await {
+        Ok(files_without) => {
+            eprintln!("[SEARCH] Found {} files without embeddings", files_without.len());
+            for meta in files_without {
+                // Calculate filename similarity
+                let filename_sim = filename_similarity(query, &meta.file_name);
+                
+                // Only include if there's a decent keyword match
+                if filename_sim > 0.1 {
+                    // Apply penalties for short file names
+                    let adjusted = adjust_similarity_for_file_length(
+                        filename_sim,
+                        &meta.file_name,
+                        meta.file_size,
+                        query_word_count
+                    );
+                    
+                    // Add to results
+                    // Check if already present (unlikely since we split by embedding existence)
+                    results.push((meta, adjusted));
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[SEARCH] Error getting files without embeddings: {}", e);
+        }
+    }
 
     // Apply filters if provided and not empty
     if let Some(ref filters) = request.filters {
@@ -333,13 +364,24 @@ pub async fn search_files(
                 filters.file_types.is_some(), 
                 filters.folder_paths.is_some());
             let before_count = results.len();
-            results = apply_filters(results, filters);
+            results = apply_filters(results, filters, &state.config.file_type_filters.excluded_extensions);
             eprintln!("Filtered results: {} -> {} (removed {})", before_count, results.len(), before_count - results.len());
         } else {
             eprintln!("Filters provided but all empty, skipping filter application");
         }
     } else {
         eprintln!("No filters provided");
+        // Still apply global exclusion if no per-request filters
+        if !state.config.file_type_filters.excluded_extensions.is_empty() {
+            results = results.into_iter().filter(|(meta, _)| {
+                let file_ext = std::path::Path::new(&meta.file_path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                !state.config.file_type_filters.excluded_extensions.iter().any(|e| e.to_lowercase() == file_ext)
+            }).collect();
+        }
     }
 
     eprintln!("Results before sorting: {}", results.len());
@@ -381,6 +423,7 @@ pub async fn search_files(
 fn apply_filters(
     results: Vec<(crate::storage::FileMetadata, f32)>,
     filters: &FilterOptions,
+    excluded_extensions: &[String],
 ) -> Vec<(crate::storage::FileMetadata, f32)> {
     results
         .into_iter()
@@ -415,6 +458,19 @@ fn apply_filters(
                 });
                 
                 if !matches_folder {
+                    return false;
+                }
+            }
+
+            // Apply global file type exclusion
+            if !excluded_extensions.is_empty() {
+                let file_ext = std::path::Path::new(&metadata.file_path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                
+                if excluded_extensions.iter().any(|e| e.to_lowercase() == file_ext) {
                     return false;
                 }
             }

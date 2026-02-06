@@ -129,7 +129,7 @@ ipcMain.handle('api-request', async (event, { method, endpoint, data }) => {
       method,
       url: `${BACKEND_URL}${endpoint}`,
       data,
-      timeout: 30000,
+      timeout: 90000,
       validateStatus: (status) => status < 500 // Don't throw on 4xx errors, let us handle them
     });
     

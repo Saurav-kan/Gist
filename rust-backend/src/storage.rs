@@ -63,30 +63,56 @@ impl Storage {
         })
     }
 
-    pub async fn add_file(&self, metadata: &FileMetadata, embedding: &[f32]) -> Result<()> {
+    pub async fn add_file(&self, metadata: &FileMetadata, embedding: Option<&[f32]>) -> Result<()> {
         // Check if file already exists in index
         let existing_metadata = self.get_file_metadata(&metadata.file_path).await?;
         
-        let (offset, length) = if let Some(existing) = existing_metadata {
-            // File exists - check if it has changed
-            if existing.modified_time == metadata.modified_time 
-                && existing.file_size == metadata.file_size 
-                && existing.embedding_length == (bincode::serialize(embedding)?.len() as i64) {
-                // File hasn't changed, reuse existing embedding
-                (existing.embedding_offset, existing.embedding_length)
+        let (offset, length) = if let Some(emb) = embedding {
+            if let Some(existing) = existing_metadata {
+                // File exists - check if it has changed
+                if existing.modified_time == metadata.modified_time 
+                    && existing.file_size == metadata.file_size 
+                    && existing.embedding_length > 0 {
+                    // File hasn't changed, reuse existing embedding
+                    (existing.embedding_offset, existing.embedding_length)
+                } else {
+                    // File has changed or was metadata-only, need new embedding
+                    // Get current file size for offset (append to end)
+                    let new_offset = if self.embeddings_path.exists() {
+                        std::fs::metadata(&self.embeddings_path)?.len() as i64
+                    } else {
+                        0
+                    };
+                    
+                    // Serialize and append new embedding
+                    let serialized = bincode::serialize(emb)?;
+                    let new_length = serialized.len() as i64;
+                    
+                    use std::io::Write;
+                    let mut file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .write(true)
+                        .open(&self.embeddings_path)?;
+                    
+                    file.write_all(&serialized)?;
+                    file.flush()?;
+                    
+                    (new_offset, new_length)
+                }
             } else {
-                // File has changed, need new embedding
-                // Get current file size for offset (append to end)
+                // New file, append embedding
                 let new_offset = if self.embeddings_path.exists() {
                     std::fs::metadata(&self.embeddings_path)?.len() as i64
                 } else {
                     0
                 };
                 
-                // Serialize and append new embedding
-                let serialized = bincode::serialize(embedding)?;
+                // Serialize embedding
+                let serialized = bincode::serialize(emb)?;
                 let new_length = serialized.len() as i64;
                 
+                // Append embedding to binary file
                 use std::io::Write;
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
@@ -100,29 +126,8 @@ impl Storage {
                 (new_offset, new_length)
             }
         } else {
-            // New file, append embedding
-            let new_offset = if self.embeddings_path.exists() {
-                std::fs::metadata(&self.embeddings_path)?.len() as i64
-            } else {
-                0
-            };
-            
-            // Serialize embedding
-            let serialized = bincode::serialize(embedding)?;
-            let new_length = serialized.len() as i64;
-            
-            // Append embedding to binary file
-            use std::io::Write;
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .write(true)
-                .open(&self.embeddings_path)?;
-            
-            file.write_all(&serialized)?;
-            file.flush()?;
-            
-            (new_offset, new_length)
+            // No embedding provided (metadata-only)
+            (0, 0)
         };
         
         // Update metadata in database
@@ -180,6 +185,39 @@ impl Storage {
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
                 Err(e) => Err(e.into()),
             }
+        }).await?
+    }
+
+    pub async fn get_files_without_embeddings(&self) -> Result<Vec<FileMetadata>> {
+        let db_path = self.db_path.clone();
+        
+        task::spawn_blocking(move || {
+            let conn = Connection::open(&db_path)?;
+            let mut stmt = conn.prepare(
+                "SELECT id, file_path, file_name, file_size, modified_time, file_type,
+                        embedding_offset, embedding_length
+                 FROM files WHERE embedding_length = 0"
+            )?;
+            
+            let rows = stmt.query_map([], |row| {
+                Ok(FileMetadata {
+                    id: row.get(0)?,
+                    file_path: row.get(1)?,
+                    file_name: row.get(2)?,
+                    file_size: row.get(3)?,
+                    modified_time: row.get(4)?,
+                    file_type: row.get(5)?,
+                    embedding_offset: row.get(6)?,
+                    embedding_length: row.get(7)?,
+                })
+            })?;
+            
+            let mut files = Vec::new();
+            for row in rows {
+                files.push(row?);
+            }
+            
+            Ok::<Vec<FileMetadata>, anyhow::Error>(files)
         }).await?
     }
 
@@ -279,6 +317,9 @@ impl Storage {
         let mut errors = Vec::new();
         
         for file in files {
+            if file.embedding_length <= 0 {
+                continue; // Skip metadata-only files
+            }
             match self.get_embedding(&file).await {
                 Ok(embedding) => {
                     result.push((file, embedding));

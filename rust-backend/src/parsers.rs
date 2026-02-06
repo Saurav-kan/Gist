@@ -155,6 +155,7 @@ impl DocumentParser for ImageParser {
 
 pub struct ParserRegistry {
     parsers: Vec<Box<dyn DocumentParser>>,
+    excluded_extensions: Vec<String>,
 }
 
 impl ParserRegistry {
@@ -174,10 +175,31 @@ impl ParserRegistry {
             parsers.push(Box::new(XlsxParser));
         }
         
-        Self { parsers }
+        Self { 
+            parsers,
+            excluded_extensions: config.excluded_extensions.iter().map(|s| s.to_lowercase()).collect(),
+        }
+    }
+
+    fn is_excluded(&self, file_path: &str) -> bool {
+        if self.excluded_extensions.is_empty() {
+            return false;
+        }
+
+        let ext = Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        
+        self.excluded_extensions.iter().any(|e| e == &ext)
     }
 
     pub fn extract_text(&self, file_path: &str) -> Result<String> {
+        if self.is_excluded(file_path) {
+            anyhow::bail!("File type is globally excluded: {}", file_path);
+        }
+
         for parser in &self.parsers {
             if parser.can_parse(file_path) {
                 return parser.extract_text(file_path);
@@ -188,6 +210,9 @@ impl ParserRegistry {
     }
 
     pub fn can_parse(&self, file_path: &str) -> bool {
+        if self.is_excluded(file_path) {
+            return false;
+        }
         self.parsers.iter().any(|p| p.can_parse(file_path))
     }
 }

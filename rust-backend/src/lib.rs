@@ -8,6 +8,7 @@ pub mod parsers;
 pub mod query_parser;
 pub mod search;
 pub mod storage;
+pub mod active_rag_agent;
 
 use axum::{
     http::StatusCode,

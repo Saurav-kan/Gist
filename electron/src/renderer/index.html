@@ -1,728 +1,1714 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GIST File Browser</title>
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
     <div class="app-container">
-        <!-- Sidebar Navigation -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="app-logo">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-                    <span>GIST</span>
-                </div>
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="app-logo">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+              />
+            </svg>
+            <span>GIST</span>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <div class="nav-item active" data-page="search" id="nav-search">
+            <div class="nav-icon">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
             </div>
-            
-            <nav class="sidebar-nav">
-                <div class="nav-item active" data-page="search" id="nav-search">
-                    <div class="nav-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    </div>
-                    <span class="nav-label">Search Library</span>
-                </div>
-                <div class="nav-item" data-page="desktop" id="nav-desktop">
-                    <div class="nav-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                    </div>
-                    <span class="nav-label">Desktop</span>
-                </div>
-                <div class="nav-item" data-page="downloads" id="nav-downloads">
-                    <div class="nav-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    </div>
-                    <span class="nav-label">Downloads</span>
-                </div>
-                <div class="nav-item" data-page="documents" id="nav-documents">
-                    <div class="nav-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                    </div>
-                    <span class="nav-label">Documents</span>
-                </div>
-                <div class="nav-item" data-page="other-files" id="nav-other-files">
-                    <div class="nav-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                    </div>
-                    <span class="nav-label">Other Files</span>
-                </div>
-            </nav>
-
-            <div class="sidebar-footer">
-                <div class="sidebar-settings">
-                    <div class="nav-item" data-page="indexing" id="nav-settings">
-                        <div class="nav-icon">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                        </div>
-                        <span class="nav-label">Settings</span>
-                    </div>
-                </div>
-                <div class="indexing-status">
-                    <div class="status-label">System Status</div>
-                    <div class="progress-bar-mini">
-                        <div class="progress-fill-mini" id="sidebar-progress" style="width: 0%"></div>
-                    </div>
-                    <div class="progress-text" id="sidebar-progress-text">Connecting...</div>
-                </div>
+            <span class="nav-label">Search Library</span>
+          </div>
+          <div class="nav-item" data-page="desktop" id="nav-desktop">
+            <div class="nav-icon">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="2" y="3" width="20" height="18" rx="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
             </div>
-        </aside>
-
-        <!-- Toast Notifications -->
-        <div id="toast-container" class="toast-container"></div>
-
-        <!-- Main Content Area -->
-        <main class="main-wrapper">
-            <div class="drag-bar">
-                <div class="drag-indication">GIST Vector Search</div>
-                <div class="window-controls-native">
-                    <button class="window-control minimize" title="Minimize">–</button>
-                    <button class="window-control maximize" title="Maximize">□</button>
-                    <button class="window-control close" title="Close">×</button>
-                </div>
+            <span class="nav-label">Desktop</span>
+          </div>
+          <div class="nav-item" data-page="downloads" id="nav-downloads">
+            <div class="nav-icon">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
             </div>
-            <!-- App Header -->
-            <header class="app-header">
-                <div class="header-left">
-                    <div class="breadcrumb-nav">
-                        <span class="breadcrumb-item">Files</span>
-                        <span class="breadcrumb-separator">/</span>
-                        <span class="breadcrumb-item active" id="current-folder">Home</span>
-                    </div>
-                </div>
-
-                <div class="header-right">
-                </div>
-            </header>
-
-            <!-- Scrollable Content -->
-            <div class="main-content">
-                <!-- Search Page -->
-                <section id="search-page" class="page active">
-                    <div class="page-header-complex">
-                        <div class="main-search-area">
-                            <div class="main-search-input-wrapper">
-                                <span class="search-icon-large">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                                </span>
-                                <input 
-                                    type="text" 
-                                    id="search-input" 
-                                    placeholder="Search documents by concept, topic, or phrase..."
-                                    autocomplete="off"
-                                    spellcheck="true"
-                                />
-                            </div>
-                            
-                            <div class="threshold-control">
-                                <label class="control-label">Recall Threshold</label>
-                                <div class="slider-wrapper">
-                                    <input type="range" id="similarity-slider" min="0" max="100" value="30" class="slider">
-                                    <span class="similarity-display" id="similarity-value">30%</span>
-                                </div>
-                            </div>
-
-                            <div class="view-controls">
-                                <div class="view-toggle">
-                                    <button class="view-btn active" data-view="grid" title="Grid View">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                                    </button>
-                                    <button class="view-btn" data-view="list" title="List View">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                                    </button>
-                                </div>
-                                <select id="view-size-select" class="view-size-select" title="Icon Size">
-                                    <option value="small">Small</option>
-                                    <option value="medium" selected>Medium</option>
-                                    <option value="large">Large</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Filter Display Area -->
-                    <div id="filter-container" class="filter-container" style="display: none;">
-                        <div class="filter-label">Active Filters:</div>
-                        <div id="filter-chips" class="filter-chips"></div>
-                        <button id="clear-filters-btn" class="clear-filters-btn" title="Clear all filters">Clear All</button>
-                    </div>
-
-                    <div class="results-container">
-                        <div id="results-list" class="results-grid"></div>
-                        
-                        <div id="initial-state" class="empty-state">
-                            <div class="empty-icon">
-                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                            </div>
-                            <h3>Search your library</h3>
-                            <p>Enter a query above to discover relevant documents using AI.</p>
-                        </div>
-
-                        <div id="loading-state" class="empty-state" style="display: none;">
-                            <div class="empty-icon">...</div>
-                            <h3>Searching...</h3>
-                            <p>Analyzing semantic patterns in your library</p>
-                        </div>
-                        
-                        <div id="no-results" class="no-results" style="display: none;">
-                            <div class="empty-state">
-                                <div class="empty-icon">
-                                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10l4 4m0-4l-4 4"/></svg>
-                                </div>
-                                <h2>No matches found</h2>
-                                <p>Try lowering the recall threshold or using broader terms.</p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Settings/Indexing Page -->
-                <section id="indexing-page" class="page">
-                    <div class="page-header">
-                        <div class="page-title">
-                            <h1>Settings</h1>
-                            <p>Configure search, indexing, and AI capabilities</p>
-                        </div>
-                    </div>
-                    
-                    <div class="settings-grid">
-                        <!-- Performance & Indexing -->
-                        <div class="section-card">
-                            <div class="section-header">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
-                                <h2>Indexing mode</h2>
-                            </div>
-                            <div class="model-cards">
-                                <div class="model-card active" data-model="lightweight">
-                                    <div class="model-header">
-                                        <div class="model-title">
-                                            <input type="radio" name="performance-mode" value="lightweight" checked style="display:none">
-                                            Fast Mode
-                                        </div>
-                                        <span class="model-badge">Light</span>
-                                    </div>
-                                    <div class="model-details">
-                                        <p><strong>Model:</strong> all-minilm (384 dims)</p>
-                                        <p>Optimized for speed and low RAM usage.</p>
-                                    </div>
-                                </div>
-                                <div class="model-card" data-model="normal">
-                                    <div class="model-header">
-                                        <div class="model-title">
-                                            <input type="radio" name="performance-mode" value="normal" style="display:none">
-                                            Advanced Mode
-                                        </div>
-                                        <span class="model-badge">Deep</span>
-                                    </div>
-                                    <div class="model-details">
-                                        <p><strong>Model:</strong> embeddinggemma (1024 dims)</p>
-                                        <p>Highest accuracy for complex semantic queries.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Search Configuration -->
-                        <div class="section-card">
-                            <div class="section-header">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                                <h2>Search Settings</h2>
-                            </div>
-                            <div class="settings-input-group">
-                                <div class="control-row">
-                                    <label for="max-results-slider" class="control-label">
-                                        Maximum Search Results
-                                    </label>
-                                    <div class="slider-wrapper">
-                                        <input type="range" id="max-results-slider" class="slider" min="10" max="200" value="100" step="10" />
-                                        <span id="max-results-value" class="similarity-display">100</span>
-                                    </div>
-                                </div>
-                                <p class="setting-caption">Number of results to return per search query (10-200)</p>
-                            </div>
-                        </div>
-
-                        <!-- AI Features -->
-                        <div class="section-card">
-                            <div class="section-header">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"></path><path d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8V2z"></path></svg>
-                                <h2>AI Assistant</h2>
-                            </div>
-                            <div class="settings-input-group">
-                                <label class="checkbox-wrapper">
-                                    <input type="checkbox" id="ai-features-enabled">
-                                    <div class="checkbox-box"></div>
-                                    <div class="checkbox-label">
-                                        <span>Enable AI Features</span>
-                                        <p>Summarization and document chat</p>
-                                    </div>
-                                </label>
-
-                                <div id="ai-settings-container" class="sub-settings-panel" style="display: none;">
-                                    <div class="setting-group">
-                                        <label for="ai-provider-select" class="control-label">AI Provider</label>
-                                        <select id="ai-provider-select" class="modern-select">
-                                            <option value="ollama">Ollama (Locally hosted)</option>
-                                            <option value="greenpt">GreenPT (Recommended)</option>
-                                            <option value="openai">OpenAI (ChatGPT)</option>
-                                            <option value="gemini">Google Gemini</option>
-                                        </select>
-                                    </div>
-
-                                    <div id="ollama-settings" class="provider-panel">
-                                        <label for="ollama-model-input" class="control-label">Ollama Model</label>
-                                        <input type="text" id="ollama-model-input" class="modern-input" placeholder="e.g., llama3.2:1b">
-                                        <p class="setting-caption">Recommended: llama3.2:1b (low RAM) or llama3.2:3b (better accuracy).</p>
-                                    </div>
-
-                                    <div id="api-key-settings" class="provider-panel" style="display: none;">
-                                        <label for="api-key-input" class="control-label">API Key</label>
-                                        <input type="password" id="api-key-input" class="modern-input" placeholder="Enter your secret key">
-                                        <p class="setting-caption">Stored securely on your system. Never sent to our servers.</p>
-                                    </div>
-
-                                    <div id="gemini-settings" class="provider-panel" style="display: none;">
-                                        <div class="setting-row">
-                                            <label for="gemini-model-select" class="control-label">Gemini Model</label>
-                                            <button id="refresh-gemini-models" class="icon-btn-small" title="Refresh models">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path><polyline points="21 3 21 9 15 9"></polyline></svg>
-                                            </button>
-                                        </div>
-                                        <select id="gemini-model-select" class="modern-select">
-                                            <option value="gemini-pro">Loading models...</option>
-                                        </select>
-                                        <p class="setting-caption">Models are fetched live. Using gemini-pro if loading fails.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Folders -->
-                        <div class="section-card">
-                            <div class="section-header">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                                <h2>Indexed Folders</h2>
-                            </div>
-                            <div class="table-container">
-                                <table class="modern-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Folder Path</th>
-                                            <th>Files</th>
-                                            <th>Status</th>
-                                            <th></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="libraries-table-body">
-                                        <tr>
-                                            <td colspan="4" class="table-empty">No folders indexed yet</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div class="button-group-right">
-                                <button id="add-directory" class="btn-primary">Add Folder</button>
-                                <button id="clear-index" class="btn-secondary danger">Purge Index</button>
-                            </div>
-                        </div>
-
-                        <!-- System -->
-                        <div class="section-card">
-                            <div class="section-header">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                                <h2>System info</h2>
-                            </div>
-                            <div id="system-info" class="system-info-panel">
-                                Loading hardware specs...
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="settings-footer">
-                        <button id="save-settings" class="btn-primary save-btn">Save All Changes</button>
-                        <div id="settings-message" class="settings-message"></div>
-                    </div>
-                </section>
-
-                <!-- Desktop Page -->
-                <section id="desktop-page" class="page">
-                    <div class="page-header">
-                        <div class="page-title">
-                            <h1>Desktop</h1>
-                            <p>Browse files on your desktop</p>
-                        </div>
-                        <div class="view-controls">
-                            <div class="sort-controls">
-                                <select id="sort-select-desktop" class="sort-select" title="Sort by">
-                                    <option value="name">Name</option>
-                                    <option value="date_modified">Date Modified</option>
-                                    <option value="date_created">Date Created</option>
-                                    <option value="size">Size</option>
-                                    <option value="type">Type</option>
-                                </select>
-                                <button id="sort-order-desktop" class="sort-order-btn" data-order="asc" title="Sort order">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
-                                </button>
-                            </div>
-                            <div class="view-toggle">
-                                <button class="view-btn active" data-view="grid" title="Grid View">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                                </button>
-                                <button class="view-btn" data-view="list" title="List View">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                                </button>
-                            </div>
-                            <select id="view-size-select-desktop" class="view-size-select" title="Icon Size">
-                                <option value="small">Small</option>
-                                <option value="medium" selected>Medium</option>
-                                <option value="large">Large</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="file-browser-content">
-                        <!-- Tree View Sidebar (toggleable) -->
-                        <div id="tree-view-sidebar" class="tree-view-sidebar" style="display: none;">
-                            <div class="tree-view-header">
-                                <h3>Folders</h3>
-                                <button id="tree-view-toggle" class="tree-toggle-btn" title="Hide Tree View">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                                </button>
-                            </div>
-                            <div id="tree-view-container" class="tree-view-container"></div>
-                        </div>
-                        <div class="file-browser-main-content">
-                            <div class="file-search-wrapper">
-                                <button id="tree-view-show-btn" class="tree-show-btn" title="Show Tree View" style="display: none;">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                                </button>
-                                <input type="text" id="file-search-desktop" class="file-search-input" placeholder="Search files by name or content...">
-                            </div>
-                            <div id="desktop-file-list" class="file-list-grid"></div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Downloads Page -->
-                <section id="downloads-page" class="page">
-                    <div class="page-header">
-                        <div class="page-title">
-                            <h1>Downloads</h1>
-                            <p>Browse files in your Downloads folder</p>
-                        </div>
-                        <div class="view-controls">
-                            <div class="sort-controls">
-                                <select id="sort-select-downloads" class="sort-select" title="Sort by">
-                                    <option value="name">Name</option>
-                                    <option value="date_modified">Date Modified</option>
-                                    <option value="date_created">Date Created</option>
-                                    <option value="size">Size</option>
-                                    <option value="type">Type</option>
-                                </select>
-                                <button id="sort-order-downloads" class="sort-order-btn" data-order="asc" title="Sort order">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
-                                </button>
-                            </div>
-                            <div class="view-toggle">
-                                <button class="view-btn active" data-view="grid" title="Grid View">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                                </button>
-                                <button class="view-btn" data-view="list" title="List View">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                                </button>
-                            </div>
-                            <select id="view-size-select-downloads" class="view-size-select" title="Icon Size">
-                                <option value="small">Small</option>
-                                <option value="medium" selected>Medium</option>
-                                <option value="large">Large</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="file-browser-content">
-                        <div class="file-search-wrapper">
-                            <input type="text" id="file-search-downloads" class="file-search-input" placeholder="Search files by name or content...">
-                        </div>
-                        <div id="downloads-file-list" class="file-list-grid"></div>
-                    </div>
-                </section>
-
-                <!-- Documents Page -->
-                <section id="documents-page" class="page">
-                    <div class="page-header">
-                        <div class="page-title">
-                            <h1>Documents</h1>
-                            <p>Browse files in your Documents folder</p>
-                        </div>
-                        <div class="view-controls">
-                            <div class="sort-controls">
-                                <select id="sort-select-documents" class="sort-select" title="Sort by">
-                                    <option value="name">Name</option>
-                                    <option value="date_modified">Date Modified</option>
-                                    <option value="date_created">Date Created</option>
-                                    <option value="size">Size</option>
-                                    <option value="type">Type</option>
-                                </select>
-                                <button id="sort-order-documents" class="sort-order-btn" data-order="asc" title="Sort order">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
-                                </button>
-                            </div>
-                            <div class="view-toggle">
-                                <button class="view-btn active" data-view="grid" title="Grid View">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                                </button>
-                                <button class="view-btn" data-view="list" title="List View">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                                </button>
-                            </div>
-                            <select id="view-size-select-documents" class="view-size-select" title="Icon Size">
-                                <option value="small">Small</option>
-                                <option value="medium" selected>Medium</option>
-                                <option value="large">Large</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="file-browser-content">
-                        <div class="file-browser-main-content">
-                            <div class="file-search-wrapper">
-                                <input type="text" id="file-search-documents" class="file-search-input" placeholder="Search files by name or content...">
-                            </div>
-                            <div id="documents-file-list" class="file-list-grid"></div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Other Files Page -->
-                <section id="other-files-page" class="page">
-                    <div class="page-header">
-                        <div class="page-title">
-                            <h1>Other Files</h1>
-                            <p>Browse other files and folders</p>
-                        </div>
-                        <div class="view-controls">
-                            <div class="view-toggle">
-                                <button class="view-btn active" data-view="grid" title="Grid View">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                                </button>
-                                <button class="view-btn" data-view="list" title="List View">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                                </button>
-                            </div>
-                            <select id="view-size-select-other-files" class="view-size-select" title="Icon Size">
-                                <option value="small">Small</option>
-                                <option value="medium" selected>Medium</option>
-                                <option value="large">Large</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="file-browser-content">
-                        <div id="other-files-file-list" class="file-list-grid"></div>
-                    </div>
-                </section>
-
-                <!-- File Browser Page (deprecated - keeping for reference) -->
-                <section id="browser-page" class="page" style="display: none;">
-                    <div class="page-header">
-                        <div class="page-title">
-                            <h1>File Browser</h1>
-                            <p>Browse and manage your files</p>
-                        </div>
-                    </div>
-
-                    <div class="browser-container">
-                        <!-- Quick Access Sidebar -->
-                        <div class="quick-access-sidebar">
-                            <h3>Quick Access</h3>
-                            <div class="quick-access-list">
-                                <button class="quick-access-item" data-path="desktop">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                                    <span>Desktop</span>
-                                </button>
-                                <button class="quick-access-item" data-path="downloads">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                    <span>Downloads</span>
-                                </button>
-                                <button class="quick-access-item" data-path="documents">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                                    <span>Documents</span>
-                                </button>
-                                <button class="quick-access-item" data-path="home">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-                                    <span>Home</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Main Browser Area -->
-                        <div class="browser-main">
-                            <!-- Breadcrumb -->
-                            <div class="browser-breadcrumb">
-                                <button class="breadcrumb-btn" id="browser-back" title="Go Back">←</button>
-                                <div class="breadcrumb-path" id="browser-path">Loading...</div>
-                            </div>
-
-                            <!-- Toolbar -->
-                            <div class="browser-toolbar">
-                                <button class="toolbar-btn" id="browser-new-folder">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                                    <span>New Folder</span>
-                                </button>
-                                <button class="toolbar-btn" id="browser-delete" disabled>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                                    <span>Delete</span>
-                                </button>
-                                <button class="toolbar-btn" id="browser-rename" disabled>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                    <span>Rename</span>
-                                </button>
-                                <button class="toolbar-btn" id="browser-add-to-index" disabled>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                                    <span>Add to Index</span>
-                                </button>
-                            </div>
-
-                            <!-- File List -->
-                            <div class="browser-file-list" id="browser-file-list">
-                                <div class="empty-state">
-                                    <div class="empty-icon">
-                                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                                    </div>
-                                    <h3>Select a folder to browse</h3>
-                                    <p>Use Quick Access or navigate to a folder</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+            <span class="nav-label">Downloads</span>
+          </div>
+          <div class="nav-item" data-page="documents" id="nav-documents">
+            <div class="nav-icon">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                ></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
             </div>
-        </main>
-
-        <!-- Preview Panel -->
-        <aside id="preview-panel" class="preview-panel">
-            <div class="preview-panel-header">
-                <div class="preview-file-name" id="preview-file-name">No file selected</div>
-                <button class="preview-close-btn" id="preview-close-btn" title="Close preview">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                </button>
+            <span class="nav-label">Documents</span>
+          </div>
+          <div class="nav-item" data-page="other-files" id="nav-other-files">
+            <div class="nav-icon">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+                ></path>
+              </svg>
             </div>
-            
-            <div class="preview-panel-content">
-                <!-- Preview Section -->
-                <div class="preview-content" id="preview-content">
-                    <div class="preview-loading" id="preview-loading" style="display: none;">
-                        <div class="loading-spinner"></div>
-                        <p>Loading preview...</p>
-                    </div>
-                    <div class="preview-error" id="preview-error" style="display: none;"></div>
-                    <div class="preview-text" id="preview-text"></div>
-                    <div class="preview-image" id="preview-image"></div>
-                    <div class="preview-pdf" id="preview-pdf" style="display: none;">
-                        <div class="pdf-controls" id="pdf-controls" style="display: none;">
-                            <button id="pdf-prev-page" class="pdf-nav-btn">Previous</button>
-                            <span id="pdf-page-info">Page 1 of 1</span>
-                            <button id="pdf-next-page" class="pdf-nav-btn">Next</button>
-                        </div>
-                        <canvas id="pdf-canvas"></canvas>
-                    </div>
-                    <div class="preview-unsupported" id="preview-unsupported" style="display: none;">
-                        <p>Preview not available for this file type.</p>
-                    </div>
+            <span class="nav-label">Other Files</span>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="sidebar-settings">
+            <div class="nav-item" data-page="indexing" id="nav-settings">
+              <div class="nav-icon">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                  ></path>
+                </svg>
+              </div>
+              <span class="nav-label">Settings</span>
+            </div>
+          </div>
+          <div class="indexing-status">
+            <div class="status-label">System Status</div>
+            <div class="progress-bar-mini">
+              <div
+                class="progress-fill-mini"
+                id="sidebar-progress"
+                style="width: 0%"
+              ></div>
+            </div>
+            <div class="progress-text" id="sidebar-progress-text">
+              Connecting...
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Toast Notifications -->
+      <div id="toast-container" class="toast-container"></div>
+
+      <!-- Main Content Area -->
+      <main class="main-wrapper">
+        <div class="drag-bar">
+          <div class="drag-indication">GIST Vector Search</div>
+          <div class="window-controls-native">
+            <button class="window-control minimize" title="Minimize">–</button>
+            <button class="window-control maximize" title="Maximize">□</button>
+            <button class="window-control close" title="Close">×</button>
+          </div>
+        </div>
+        <!-- App Header -->
+        <header class="app-header">
+          <div class="header-left">
+            <div class="breadcrumb-nav">
+              <span class="breadcrumb-item">Files</span>
+              <span class="breadcrumb-separator">/</span>
+              <span class="breadcrumb-item active" id="current-folder"
+                >Home</span
+              >
+            </div>
+          </div>
+
+          <div class="header-right"></div>
+        </header>
+
+        <!-- Scrollable Content -->
+        <div class="main-content">
+          <!-- Search Page -->
+          <section id="search-page" class="page active">
+            <!-- Active RAG Response Bar -->
+            <div
+              id="active-rag-response"
+              class="active-rag-response"
+              style="display: none"
+            >
+              <div class="response-header">
+                <div class="response-title">AI Analysis</div>
+                <div class="response-confidence" id="response-confidence"></div>
+              </div>
+              <div class="response-content" id="response-content"></div>
+              <div class="response-sources">
+                <div class="sources-title">Sources Used:</div>
+                <div class="sources-list" id="sources-list"></div>
+              </div>
+            </div>
+
+            <!-- Document Tabs -->
+            <div id="document-tabs" class="document-tabs" style="display: none">
+              <div class="tabs-header">
+                <div class="tabs-title">Analyzed Documents</div>
+                <div class="tabs-navigation" id="tabs-navigation"></div>
+              </div>
+              <div class="tabs-content" id="tabs-content"></div>
+            </div>
+
+            <div class="page-header-complex layout-two-row" id="search-header">
+              <div class="main-search-area">
+                <div class="main-search-row-primary">
+                  <div class="main-search-input-wrapper">
+                    <span class="search-icon-large">
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                      </svg>
+                    </span>
+                    <input
+                      type="text"
+                      id="search-input"
+                      placeholder="Search documents by concept, topic, or phrase..."
+                      autocomplete="off"
+                      spellcheck="true"
+                    />
+                  </div>
+
+                  <div class="action-search-toggle">
+                    <label class="toggle-label">
+                      <div class="toggle-switch">
+                        <input
+                          type="checkbox"
+                          id="action-search-toggle"
+                          class="toggle-input"
+                        />
+                        <span class="toggle-slider"></span>
+                      </div>
+                      <span class="toggle-text">Action Search</span>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="ai-icon"
+                      >
+                        <path
+                          d="M9.663 15.819C8.906 16.434 8 17.414 8 18.714c0 1.3.906 2.28 2.663 3.895l5.682 9.62a5.5 5.5 0 0 1 3.895 3.895l-5.682 9.62C5.094 22.434 4.094 23.714 2.663 23.714c-1.3 0-2.28-.906-2.663-2.895l-5.682-9.62a5.5 5.5 0 0 0-3.895-3.895l5.682-9.62C13.906 1.566 14.906.286 16.337.286c1.3 0 2.28.906 2.663 2.895l5.682 9.62a5.5 5.5 0 0 0 3.895 3.895z"
+                        />
+                        <title>
+                          Enable AI-powered action search (uses API credits)
+                        </title>
+                      </svg>
+                    </label>
+                  </div>
+
+                  <button id="toggle-filters-btn" class="icon-btn filter-toggle" title="Toggle Filters">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="4" y1="21" x2="4" y2="14"></line>
+                      <line x1="4" y1="10" x2="4" y2="3"></line>
+                      <line x1="12" y1="21" x2="12" y2="12"></line>
+                      <line x1="12" y1="8" x2="12" y2="3"></line>
+                      <line x1="20" y1="21" x2="20" y2="16"></line>
+                      <line x1="20" y1="12" x2="20" y2="3"></line>
+                      <line x1="1" y1="14" x2="7" y2="14"></line>
+                      <line x1="9" y1="8" x2="15" y2="8"></line>
+                      <line x1="17" y1="16" x2="23" y2="16"></line>
+                    </svg>
+                  </button>
                 </div>
 
-                <!-- AI Section (only visible if enabled) -->
-                <div class="ai-section" id="ai-section" style="display: none;">
-                    <div class="ai-tabs">
-                        <div class="ai-tab-group">
-                            <button class="ai-tab active" data-tab="overview">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                                Overview
-                            </button>
-                            <button class="ai-tab" data-tab="chat">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                                Chat
-                            </button>
-                        </div>
-                        <button class="ai-toggle-expand" id="ai-toggle-expand" title="Collapse AI section">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                <div class="main-search-row-secondary" id="search-filters-panel">
+                  <div class="threshold-control">
+                    <label class="control-label">Recall Threshold</label>
+                    <div class="slider-wrapper">
+                      <input
+                        type="range"
+                        id="similarity-slider"
+                        min="0"
+                        max="100"
+                        value="30"
+                        class="slider"
+                      />
+                      <span class="similarity-display" id="similarity-value">30%</span>
+                    </div>
+                  </div>
+
+                  <div class="view-controls">
+                    <div class="view-toggle">
+                      <button
+                        class="view-btn active"
+                        data-view="grid"
+                        title="Grid View"
+                      >
+                        <svg
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect x="3" y="3" width="7" height="7"></rect>
+                          <rect x="14" y="3" width="7" height="7"></rect>
+                          <rect x="14" y="14" width="7" height="7"></rect>
+                          <rect x="3" y="14" width="7" height="7"></rect>
+                        </svg>
+                      </button>
+                      <button class="view-btn" data-view="list" title="List View">
+                        <svg
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <line x1="8" y1="6" x2="21" y2="6"></line>
+                          <line x1="8" y1="12" x2="21" y2="12"></line>
+                          <line x1="8" y1="18" x2="21" y2="18"></line>
+                          <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                          <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                        </svg>
+                      </button>
+                    </div>
+                    <select
+                      id="view-size-select"
+                      class="view-size-select"
+                      title="Icon Size"
+                    >
+                      <option value="small">Small</option>
+                      <option value="medium" selected>Medium</option>
+                      <option value="large">Large</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Filter Display Area -->
+            <div
+              id="filter-container"
+              class="filter-container"
+              style="display: none"
+            >
+              <div class="filter-label">Active Filters:</div>
+              <div id="filter-chips" class="filter-chips"></div>
+              <button
+                id="clear-filters-btn"
+                class="clear-filters-btn"
+                title="Clear all filters"
+              >
+                Clear All
+              </button>
+            </div>
+
+            <div class="results-container">
+              <div id="results-list" class="results-grid"></div>
+
+              <div id="initial-state" class="empty-state">
+                <div class="empty-icon">
+                  <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                </div>
+                <h3>Search your library</h3>
+                <p>
+                  Enter a query above to discover relevant documents using AI.
+                </p>
+              </div>
+
+              <div id="loading-state" class="empty-state" style="display: none">
+                <div class="empty-icon">...</div>
+                <h3>Searching...</h3>
+                <p>Analyzing semantic patterns in your library</p>
+              </div>
+
+              <div id="no-results" class="no-results" style="display: none">
+                <div class="empty-state">
+                  <div class="empty-icon">
+                    <svg
+                      width="48"
+                      height="48"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M10 10l4 4m0-4l-4 4" />
+                    </svg>
+                  </div>
+                  <h2>No matches found</h2>
+                  <p>
+                    Try lowering the recall threshold or using broader terms.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Settings/Indexing Page -->
+          <section id="indexing-page" class="page">
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Settings</h1>
+                <p>Configure search, indexing, and AI capabilities</p>
+              </div>
+            </div>
+
+            <div class="settings-grid">
+              <!-- Performance & Indexing -->
+              <div class="section-card">
+                <div class="section-header">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+                    ></path>
+                  </svg>
+                  <h2>Indexing mode</h2>
+                </div>
+                <div class="model-cards">
+                  <div class="model-card active" data-model="lightweight">
+                    <div class="model-header">
+                      <div class="model-title">
+                        <input
+                          type="radio"
+                          name="performance-mode"
+                          value="lightweight"
+                          checked
+                          style="display: none"
+                        />
+                        Fast Mode
+                      </div>
+                      <span class="model-badge">Light</span>
+                    </div>
+                    <div class="model-details">
+                      <p><strong>Model:</strong> all-minilm (384 dims)</p>
+                      <p>Optimized for speed and low RAM usage.</p>
+                    </div>
+                  </div>
+                  <div class="model-card" data-model="normal">
+                    <div class="model-header">
+                      <div class="model-title">
+                        <input
+                          type="radio"
+                          name="performance-mode"
+                          value="normal"
+                          style="display: none"
+                        />
+                        Advanced Mode
+                      </div>
+                      <span class="model-badge">Deep</span>
+                    </div>
+                    <div class="model-details">
+                      <p><strong>Model:</strong> embeddinggemma (1024 dims)</p>
+                      <p>Highest accuracy for complex semantic queries.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Search Configuration -->
+              <div class="section-card">
+                <div class="section-header">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <h2>Search Settings</h2>
+                </div>
+                <div class="settings-input-group">
+                  <div class="control-row">
+                    <label for="max-results-slider" class="control-label">
+                      Maximum Search Results
+                    </label>
+                    <div class="slider-wrapper">
+                      <input
+                        type="range"
+                        id="max-results-slider"
+                        class="slider"
+                        min="10"
+                        max="200"
+                        value="100"
+                        step="10"
+                      />
+                      <span id="max-results-value" class="similarity-display"
+                        >100</span
+                      >
+                    </div>
+                  </div>
+                  <p class="setting-caption">
+                    Number of results to return per search query (10-200)
+                  </p>
+
+                  <div class="control-row" style="margin-top: 1rem;">
+                    <label for="search-layout-select" class="control-label">
+                      Search Bar Layout
+                    </label>
+                    <select id="search-layout-select" class="modern-select">
+                      <option value="layout-two-row">Two-line Layout (Default)</option>
+                      <option value="layout-compact">Filtered Layout (Compact)</option>
+                    </select>
+                  </div>
+                  <p class="setting-caption">
+                    Choose how the search controls are organized on the search page
+                  </p>
+
+                  <div class="control-row" style="margin-top: 1rem;">
+                    <label for="excluded-extensions-input" class="control-label">
+                      Global Excluded Extensions
+                    </label>
+                    <input 
+                      type="text" 
+                      id="excluded-extensions-input" 
+                      class="modern-input" 
+                      placeholder="e.g. log, tmp, exe, bak"
+                    >
+                  </div>
+                  <p class="setting-caption">
+                    Comma-separated list of extensions to ignore during indexing and search results
+                  </p>
+                  
+                  <!-- Advanced Action Search Options -->
+                  <div class="control-row" style="margin-top: 1rem;">
+                    <label for="action-search-parsing-model" class="control-label">
+                      Action Search - Query Parsing Provider
+                    </label>
+                    <select id="action-search-parsing-model" class="modern-select">
+                      <option value="ollama">Ollama (Local, Fast)</option>
+                      <option value="gemini">Gemini (API, Accurate)</option>
+                    </select>
+                  </div>
+                  <p class="setting-caption">
+                    Provider used for decomposing user queries into search terms and actions. When using Ollama/Gemini, the model comes from the AI Provider settings above.
+                  </p>
+                  
+                  <div class="control-row" style="margin-top: 1rem;">
+                    <label for="action-search-analysis-model" class="control-label">
+                      Action Search - Document Analysis Provider
+                    </label>
+                    <select id="action-search-analysis-model" class="modern-select">
+                      <option value="same-as-main">Same as Main AI Provider</option>
+                      <option value="ollama">Ollama (Local, Fast)</option>
+                      <option value="gemini">Gemini (API, Accurate)</option>
+                    </select>
+                  </div>
+                  <p class="setting-caption">
+                    Provider used for analyzing documents and generating responses. When using Ollama/Gemini, the model comes from the AI Provider settings above.
+                  </p>
+                </div>
+              </div>
+
+              <!-- AI Features -->
+              <div class="section-card">
+                <div class="section-header">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M12 2a10 10 0 1 0 10 10H12V2z"></path>
+                    <path
+                      d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8V2z"
+                    ></path>
+                  </svg>
+                  <h2>AI Assistant</h2>
+                </div>
+                <div class="settings-input-group">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="ai-features-enabled" />
+                    <div class="checkbox-box"></div>
+                    <div class="checkbox-label">
+                      <span>Enable AI Features</span>
+                      <p>Summarization and document chat</p>
+                    </div>
+                  </label>
+
+                  <div
+                    id="ai-settings-container"
+                    class="sub-settings-panel"
+                    style="display: none"
+                  >
+                    <div class="setting-group">
+                      <label for="ai-provider-select" class="control-label"
+                        >AI Provider</label
+                      >
+                      <select id="ai-provider-select" class="modern-select">
+                        <option value="ollama">Ollama (Locally hosted)</option>
+                        <option value="greenpt">GreenPT (Recommended)</option>
+                        <option value="openai">OpenAI (ChatGPT)</option>
+                        <option value="gemini">Google Gemini</option>
+                      </select>
+                    </div>
+
+                    <div id="ollama-settings" class="provider-panel">
+                      <label for="ollama-model-input" class="control-label"
+                        >Ollama Model</label
+                      >
+                      <input
+                        type="text"
+                        id="ollama-model-input"
+                        class="modern-input"
+                        placeholder="e.g., llama3.2:1b"
+                      />
+                      <p class="setting-caption">
+                        Recommended: llama3.2:1b (low RAM) or llama3.2:3b
+                        (better accuracy).
+                      </p>
+                    </div>
+
+                    <div
+                      id="api-key-settings"
+                      class="provider-panel"
+                      style="display: none"
+                    >
+                      <label for="api-key-input" class="control-label"
+                        >API Key</label
+                      >
+                      <input
+                        type="password"
+                        id="api-key-input"
+                        class="modern-input"
+                        placeholder="Enter your secret key"
+                      />
+                      <p class="setting-caption">
+                        Stored securely on your system. Never sent to our
+                        servers.
+                      </p>
+                    </div>
+
+                    <div
+                      id="gemini-settings"
+                      class="provider-panel"
+                      style="display: none"
+                    >
+                      <div class="setting-row">
+                        <label for="gemini-model-select" class="control-label"
+                          >Gemini Model</label
+                        >
+                        <button
+                          id="refresh-gemini-models"
+                          class="icon-btn-small"
+                          title="Refresh models"
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+                            <polyline points="21 3 21 9 15 9"></polyline>
+                          </svg>
                         </button>
+                      </div>
+                      <select id="gemini-model-select" class="modern-select">
+                        <option value="gemini-pro">Loading models...</option>
+                      </select>
+                      <p class="setting-caption">
+                        Models are fetched live. Using gemini-pro if loading
+                        fails.
+                      </p>
                     </div>
-                    
-                    <div class="ai-tab-content">
-                        <!-- Overview Tab -->
-                        <div class="ai-pane active" id="ai-pane-overview">
-                            <div class="ai-summarize-section">
-                                <button class="ai-summarize-btn" id="ai-summarize-btn">
-                                    <span class="btn-text">Summarize Document</span>
-                                    <div class="ai-loading-dots" style="display: none;">
-                                        <span></span><span></span><span></span>
-                                    </div>
-                                </button>
-                                <div class="ai-summarize-result" id="ai-summarize-result" style="display: none;"></div>
-                                <div class="ai-empty-state" id="ai-summarize-empty">
-                                    <p>Get a quick AI summary of this file's contents</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Chat Tab -->
-                        <div class="ai-pane" id="ai-pane-chat">
-                            <div class="ai-chat-section">
-                                <div class="ai-chat-messages" id="ai-chat-messages">
-                                    <div class="ai-chat-welcome">
-                                        <p>Ask anything about this document. The AI has access to the full text content.</p>
-                                    </div>
-                                </div>
-                                <div class="ai-chat-input-wrapper">
-                                    <input type="text" id="ai-chat-input" class="ai-chat-input" placeholder="Ask a question...">
-                                    <button class="ai-chat-send-btn" id="ai-chat-send-btn">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                  </div>
                 </div>
+              </div>
+
+              <!-- Folders -->
+              <div class="section-card">
+                <div class="section-header">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+                    ></path>
+                  </svg>
+                  <h2>Indexed Folders</h2>
+                </div>
+                <div class="table-container">
+                  <table class="modern-table">
+                    <thead>
+                      <tr>
+                        <th>Folder Path</th>
+                        <th>Files</th>
+                        <th>Status</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="libraries-table-body">
+                      <tr>
+                        <td colspan="4" class="table-empty">
+                          No folders indexed yet
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="button-group-right">
+                  <button id="add-directory" class="btn-primary">
+                    Add Folder
+                  </button>
+                  <button id="clear-index" class="btn-secondary danger">
+                    Purge Index
+                  </button>
+                </div>
+              </div>
+
+              <!-- System -->
+              <div class="section-card">
+                <div class="section-header">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <rect
+                      x="2"
+                      y="3"
+                      width="20"
+                      height="14"
+                      rx="2"
+                      ry="2"
+                    ></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                  </svg>
+                  <h2>System info</h2>
+                </div>
+                <div id="system-info" class="system-info-panel">
+                  Loading hardware specs...
+                </div>
+              </div>
             </div>
 
-            <div class="preview-panel-footer">
-                <button class="preview-action-btn" id="preview-open-external-btn" title="Open in default application">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                    Open
-                </button>
-                <button class="preview-action-btn" id="preview-show-folder-btn" title="Show in folder">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                    Show in Folder
-                </button>
+            <div class="settings-footer">
+              <button id="save-settings" class="btn-primary save-btn">
+                Save All Changes
+              </button>
+              <div id="settings-message" class="settings-message"></div>
             </div>
-        </aside>
+          </section>
+
+          <!-- Desktop Page -->
+          <section id="desktop-page" class="page">
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Desktop</h1>
+                <p>Browse files on your desktop</p>
+              </div>
+              <div class="view-controls">
+                <div class="sort-controls">
+                  <select
+                    id="sort-select-desktop"
+                    class="sort-select"
+                    title="Sort by"
+                  >
+                    <option value="name">Name</option>
+                    <option value="date_modified">Date Modified</option>
+                    <option value="date_created">Date Created</option>
+                    <option value="size">Size</option>
+                    <option value="type">Type</option>
+                  </select>
+                  <button
+                    id="sort-order-desktop"
+                    class="sort-order-btn"
+                    data-order="asc"
+                    title="Sort order"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                  </button>
+                </div>
+                <div class="view-toggle">
+                  <button
+                    class="view-btn active"
+                    data-view="grid"
+                    title="Grid View"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <rect x="3" y="3" width="7" height="7"></rect>
+                      <rect x="14" y="3" width="7" height="7"></rect>
+                      <rect x="14" y="14" width="7" height="7"></rect>
+                      <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                  </button>
+                  <button class="view-btn" data-view="list" title="List View">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="8" y1="6" x2="21" y2="6"></line>
+                      <line x1="8" y1="12" x2="21" y2="12"></line>
+                      <line x1="8" y1="18" x2="21" y2="18"></line>
+                      <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                      <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                      <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+                <select
+                  id="view-size-select-desktop"
+                  class="view-size-select"
+                  title="Icon Size"
+                >
+                  <option value="small">Small</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="large">Large</option>
+                </select>
+              </div>
+            </div>
+            <div class="file-browser-content">
+              <!-- Tree View Sidebar (toggleable) -->
+              <div
+                id="tree-view-sidebar"
+                class="tree-view-sidebar"
+                style="display: none"
+              >
+                <div class="tree-view-header">
+                  <h3>Folders</h3>
+                  <button
+                    id="tree-view-toggle"
+                    class="tree-toggle-btn"
+                    title="Hide Tree View"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                  </button>
+                </div>
+                <div id="tree-view-container" class="tree-view-container"></div>
+              </div>
+              <div class="file-browser-main-content">
+                <div class="file-search-wrapper">
+                  <button
+                    id="tree-view-show-btn"
+                    class="tree-show-btn"
+                    title="Show Tree View"
+                    style="display: none"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                  </button>
+                  <input
+                    type="text"
+                    id="file-search-desktop"
+                    class="file-search-input"
+                    placeholder="Search files by name or content..."
+                  />
+                </div>
+                <div id="desktop-file-list" class="file-list-grid"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Downloads Page -->
+          <section id="downloads-page" class="page">
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Downloads</h1>
+                <p>Browse files in your Downloads folder</p>
+              </div>
+              <div class="view-controls">
+                <div class="sort-controls">
+                  <select
+                    id="sort-select-downloads"
+                    class="sort-select"
+                    title="Sort by"
+                  >
+                    <option value="name">Name</option>
+                    <option value="date_modified">Date Modified</option>
+                    <option value="date_created">Date Created</option>
+                    <option value="size">Size</option>
+                    <option value="type">Type</option>
+                  </select>
+                  <button
+                    id="sort-order-downloads"
+                    class="sort-order-btn"
+                    data-order="asc"
+                    title="Sort order"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                  </button>
+                </div>
+                <div class="view-toggle">
+                  <button
+                    class="view-btn active"
+                    data-view="grid"
+                    title="Grid View"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <rect x="3" y="3" width="7" height="7"></rect>
+                      <rect x="14" y="3" width="7" height="7"></rect>
+                      <rect x="14" y="14" width="7" height="7"></rect>
+                      <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                  </button>
+                  <button class="view-btn" data-view="list" title="List View">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="8" y1="6" x2="21" y2="6"></line>
+                      <line x1="8" y1="12" x2="21" y2="12"></line>
+                      <line x1="8" y1="18" x2="21" y2="18"></line>
+                      <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                      <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                      <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+                <select
+                  id="view-size-select-downloads"
+                  class="view-size-select"
+                  title="Icon Size"
+                >
+                  <option value="small">Small</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="large">Large</option>
+                </select>
+              </div>
+            </div>
+            <div class="file-browser-content">
+              <div class="file-search-wrapper">
+                <input
+                  type="text"
+                  id="file-search-downloads"
+                  class="file-search-input"
+                  placeholder="Search files by name or content..."
+                />
+              </div>
+              <div id="downloads-file-list" class="file-list-grid"></div>
+            </div>
+          </section>
+
+          <!-- Documents Page -->
+          <section id="documents-page" class="page">
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Documents</h1>
+                <p>Browse files in your Documents folder</p>
+              </div>
+              <div class="view-controls">
+                <div class="sort-controls">
+                  <select
+                    id="sort-select-documents"
+                    class="sort-select"
+                    title="Sort by"
+                  >
+                    <option value="name">Name</option>
+                    <option value="date_modified">Date Modified</option>
+                    <option value="date_created">Date Created</option>
+                    <option value="size">Size</option>
+                    <option value="type">Type</option>
+                  </select>
+                  <button
+                    id="sort-order-documents"
+                    class="sort-order-btn"
+                    data-order="asc"
+                    title="Sort order"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                  </button>
+                </div>
+                <div class="view-toggle">
+                  <button
+                    class="view-btn active"
+                    data-view="grid"
+                    title="Grid View"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <rect x="3" y="3" width="7" height="7"></rect>
+                      <rect x="14" y="3" width="7" height="7"></rect>
+                      <rect x="14" y="14" width="7" height="7"></rect>
+                      <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                  </button>
+                  <button class="view-btn" data-view="list" title="List View">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="8" y1="6" x2="21" y2="6"></line>
+                      <line x1="8" y1="12" x2="21" y2="12"></line>
+                      <line x1="8" y1="18" x2="21" y2="18"></line>
+                      <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                      <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                      <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+                <select
+                  id="view-size-select-documents"
+                  class="view-size-select"
+                  title="Icon Size"
+                >
+                  <option value="small">Small</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="large">Large</option>
+                </select>
+              </div>
+            </div>
+            <div class="file-browser-content">
+              <div class="file-browser-main-content">
+                <div class="file-search-wrapper">
+                  <input
+                    type="text"
+                    id="file-search-documents"
+                    class="file-search-input"
+                    placeholder="Search files by name or content..."
+                  />
+                </div>
+                <div id="documents-file-list" class="file-list-grid"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Other Files Page -->
+          <section id="other-files-page" class="page">
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Other Files</h1>
+                <p>Browse other files and folders</p>
+              </div>
+              <div class="view-controls">
+                <div class="view-toggle">
+                  <button
+                    class="view-btn active"
+                    data-view="grid"
+                    title="Grid View"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <rect x="3" y="3" width="7" height="7"></rect>
+                      <rect x="14" y="3" width="7" height="7"></rect>
+                      <rect x="14" y="14" width="7" height="7"></rect>
+                      <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                  </button>
+                  <button class="view-btn" data-view="list" title="List View">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="8" y1="6" x2="21" y2="6"></line>
+                      <line x1="8" y1="12" x2="21" y2="12"></line>
+                      <line x1="8" y1="18" x2="21" y2="18"></line>
+                      <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                      <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                      <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+                <select
+                  id="view-size-select-other-files"
+                  class="view-size-select"
+                  title="Icon Size"
+                >
+                  <option value="small">Small</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="large">Large</option>
+                </select>
+              </div>
+            </div>
+            <div class="file-browser-content">
+              <div id="other-files-file-list" class="file-list-grid"></div>
+            </div>
+          </section>
+
+          <!-- File Browser Page (deprecated - keeping for reference) -->
+          <section id="browser-page" class="page" style="display: none">
+            <div class="page-header">
+              <div class="page-title">
+                <h1>File Browser</h1>
+                <p>Browse and manage your files</p>
+              </div>
+            </div>
+
+            <div class="browser-container">
+              <!-- Quick Access Sidebar -->
+              <div class="quick-access-sidebar">
+                <h3>Quick Access</h3>
+                <div class="quick-access-list">
+                  <button class="quick-access-item" data-path="desktop">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <rect x="2" y="3" width="20" height="18" rx="2"></rect>
+                      <line x1="8" y1="21" x2="16" y2="21"></line>
+                      <line x1="12" y1="17" x2="12" y2="21"></line>
+                    </svg>
+                    <span>Desktop</span>
+                  </button>
+                  <button class="quick-access-item" data-path="downloads">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                      ></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    <span>Downloads</span>
+                  </button>
+                  <button class="quick-access-item" data-path="documents">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                      ></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="16" y1="13" x2="8" y2="13"></line>
+                      <line x1="16" y1="17" x2="8" y2="17"></line>
+                      <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <span>Documents</span>
+                  </button>
+                  <button class="quick-access-item" data-path="home">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+                      ></path>
+                      <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
+                    <span>Home</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Main Browser Area -->
+              <div class="browser-main">
+                <!-- Breadcrumb -->
+                <div class="browser-breadcrumb">
+                  <button
+                    class="breadcrumb-btn"
+                    id="browser-back"
+                    title="Go Back"
+                  >
+                    ←
+                  </button>
+                  <div class="breadcrumb-path" id="browser-path">
+                    Loading...
+                  </div>
+                </div>
+
+                <!-- Toolbar -->
+                <div class="browser-toolbar">
+                  <button class="toolbar-btn" id="browser-new-folder">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span>New Folder</span>
+                  </button>
+                  <button class="toolbar-btn" id="browser-delete" disabled>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path
+                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                      ></path>
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                  <button class="toolbar-btn" id="browser-rename" disabled>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                      ></path>
+                      <path
+                        d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                      ></path>
+                    </svg>
+                    <span>Rename</span>
+                  </button>
+                  <button
+                    class="toolbar-btn"
+                    id="browser-add-to-index"
+                    disabled
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                      ></path>
+                      <polyline points="17 8 12 3 7 8"></polyline>
+                      <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <span>Add to Index</span>
+                  </button>
+                </div>
+
+                <!-- File List -->
+                <div class="browser-file-list" id="browser-file-list">
+                  <div class="empty-state">
+                    <div class="empty-icon">
+                      <svg
+                        width="48"
+                        height="48"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                      >
+                        <path
+                          d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+                        ></path>
+                      </svg>
+                    </div>
+                    <h3>Select a folder to browse</h3>
+                    <p>Use Quick Access or navigate to a folder</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <!-- Preview Panel -->
+      <aside id="preview-panel" class="preview-panel">
+        <div class="preview-panel-header">
+          <div class="preview-file-name" id="preview-file-name">
+            No file selected
+          </div>
+          <button
+            class="preview-close-btn"
+            id="preview-close-btn"
+            title="Close preview"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="preview-panel-content">
+          <!-- Preview Section -->
+          <div class="preview-content" id="preview-content">
+            <div
+              class="preview-loading"
+              id="preview-loading"
+              style="display: none"
+            >
+              <div class="loading-spinner"></div>
+              <p>Loading preview...</p>
+            </div>
+            <div
+              class="preview-error"
+              id="preview-error"
+              style="display: none"
+            ></div>
+            <div class="preview-text" id="preview-text"></div>
+            <div class="preview-image" id="preview-image"></div>
+            <div class="preview-pdf" id="preview-pdf" style="display: none">
+              <div class="pdf-controls" id="pdf-controls" style="display: none">
+                <button id="pdf-prev-page" class="pdf-nav-btn">Previous</button>
+                <span id="pdf-page-info">Page 1 of 1</span>
+                <button id="pdf-next-page" class="pdf-nav-btn">Next</button>
+              </div>
+              <canvas id="pdf-canvas"></canvas>
+            </div>
+            <div
+              class="preview-unsupported"
+              id="preview-unsupported"
+              style="display: none"
+            >
+              <p>Preview not available for this file type.</p>
+            </div>
+          </div>
+
+          <!-- AI Section (only visible if enabled) -->
+          <div class="ai-section" id="ai-section" style="display: none">
+            <div class="ai-tabs">
+              <div class="ai-tab-group">
+                <button class="ai-tab active" data-tab="overview">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                    ></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                  Overview
+                </button>
+                <button class="ai-tab" data-tab="chat">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                    ></path>
+                  </svg>
+                  Chat
+                </button>
+              </div>
+              <button
+                class="ai-toggle-expand"
+                id="ai-toggle-expand"
+                title="Collapse AI section"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+            </div>
+
+            <div class="ai-tab-content">
+              <!-- Overview Tab -->
+              <div class="ai-pane active" id="ai-pane-overview">
+                <div class="ai-summarize-section">
+                  <button class="ai-summarize-btn" id="ai-summarize-btn">
+                    <span class="btn-text">Summarize Document</span>
+                    <div class="ai-loading-dots" style="display: none">
+                      <span></span><span></span><span></span>
+                    </div>
+                  </button>
+                  <div
+                    class="ai-summarize-result"
+                    id="ai-summarize-result"
+                    style="display: none"
+                  ></div>
+                  <div class="ai-empty-state" id="ai-summarize-empty">
+                    <p>Get a quick AI summary of this file's contents</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Chat Tab -->
+              <div class="ai-pane" id="ai-pane-chat">
+                <div class="ai-chat-section">
+                  <div class="ai-chat-messages" id="ai-chat-messages">
+                    <div class="ai-chat-welcome">
+                      <p>
+                        Ask anything about this document. The AI has access to
+                        the full text content.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="ai-chat-input-wrapper">
+                    <input
+                      type="text"
+                      id="ai-chat-input"
+                      class="ai-chat-input"
+                      placeholder="Ask a question..."
+                    />
+                    <button class="ai-chat-send-btn" id="ai-chat-send-btn">
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="preview-panel-footer">
+          <button
+            class="preview-action-btn"
+            id="preview-open-external-btn"
+            title="Open in default application"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+              ></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+            Open
+          </button>
+          <button
+            class="preview-action-btn"
+            id="preview-show-folder-btn"
+            title="Show in folder"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+              ></path>
+            </svg>
+            Show in Folder
+          </button>
+        </div>
+      </aside>
     </div>
 
     <!-- Syntax Highlighting Library -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+    />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    
+
     <!-- PDF.js Library (lazy loaded when needed) -->
     <script>
-        // PDF.js will be loaded dynamically when a PDF is opened
-        window.pdfjsLib = null;
-        async function loadPdfJs() {
-            if (window.pdfjsLib) return window.pdfjsLib;
-            
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-                script.onload = () => {
-                    // Set worker source
-                    if (window.pdfjsLib) {
-                        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                        resolve(window.pdfjsLib);
-                    } else {
-                        reject(new Error('PDF.js failed to load'));
-                    }
-                };
-                script.onerror = () => reject(new Error('Failed to load PDF.js'));
-                document.head.appendChild(script);
-            });
-        }
+      // PDF.js will be loaded dynamically when a PDF is opened
+      window.pdfjsLib = null;
+      async function loadPdfJs() {
+        if (window.pdfjsLib) return window.pdfjsLib;
+
+        return new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+          script.onload = () => {
+            // Set worker source
+            if (window.pdfjsLib) {
+              window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+                "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+              resolve(window.pdfjsLib);
+            } else {
+              reject(new Error("PDF.js failed to load"));
+            }
+          };
+          script.onerror = () => reject(new Error("Failed to load PDF.js"));
+          document.head.appendChild(script);
+        });
+      }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/typescript.min.js"></script>
@@ -741,7 +1727,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/shell.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/markdown.min.js"></script>
-    
+
     <script src="app.js"></script>
-</body>
+  </body>
 </html>

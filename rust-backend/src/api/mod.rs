@@ -9,3 +9,4 @@ pub mod tree;
 pub mod preview;
 pub mod ai;
 pub mod test_image_embedding;
+pub mod active_rag;

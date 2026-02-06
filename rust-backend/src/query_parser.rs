@@ -230,6 +230,43 @@ impl QueryParser {
         total_score.min(1.0)
     }
 
+    /// Heuristic check: does the original query contain explicit date-like tokens?
+    /// We use this to decide whether to trust LLM-generated date filters.
+    fn has_explicit_date_tokens(query: &str) -> bool {
+        let q = query.to_lowercase();
+
+        // Month names and common relative-date words
+        let date_tokens = [
+            // Months
+            "january", "jan", "february", "feb", "march", "mar", "april", "apr", "may",
+            "june", "jun", "july", "jul", "august", "aug", "september", "sept", "sep",
+            "october", "oct", "november", "nov", "december", "dec",
+            // Relative / range words
+            "yesterday", "today", "tomorrow", "last week", "this week", "next week",
+            "last month", "this month", "next month",
+            "last year", "this year", "next year",
+            "between", "before", "after", "since", "from", "during",
+            "recent", "recently", "ago",
+        ];
+
+        if date_tokens.iter().any(|t| q.contains(t)) {
+            return true;
+        }
+
+        // Look for standalone 4-digit years like 2024, 2025, etc.
+        for word in q.split_whitespace() {
+            if word.len() == 4 {
+                if let Ok(year) = word.trim_matches(|c: char| !c.is_ascii_digit()).parse::<i32>() {
+                    if (1900..=2100).contains(&year) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
     /// Parse query using LLM (Ollama)
     async fn parse_with_llm(&self, query: &str) -> anyhow::Result<ParsedQuery> {
         use reqwest::Client;
@@ -322,7 +359,13 @@ Return ONLY valid JSON, no other text:
             year: Option<i32>,
         }
 
-        let parsed: LlmParsedQuery = serde_json::from_str(json_text)?;
+        let mut parsed: LlmParsedQuery = serde_json::from_str(json_text)?;
+
+        // Safety guard: if the original query doesn't contain any explicit date-like
+        // tokens, ignore any date_filter the LLM tries to invent.
+        if parsed.date_filter.is_some() && !Self::has_explicit_date_tokens(query) {
+            parsed.date_filter = None;
+        }
 
         // Convert LLM result to ParsedQuery
         let mut filters = FilterOptions {
