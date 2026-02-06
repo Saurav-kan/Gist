@@ -16,7 +16,8 @@ impl DocumentParser for TextParser {
             .unwrap_or("")
             .to_lowercase();
         
-        matches!(ext.as_str(), "txt" | "md" | "js" | "ts" | "py" | "rs" | "java" | "cpp" | "c" | "h" | "hpp" | "json" | "xml" | "html" | "css" | "yaml" | "yml" | "toml" | "ini" | "log")
+        // Removed config extensions (json, yaml, yml, toml, ini) - now handled by metadata-only indexing
+        matches!(ext.as_str(), "txt" | "md" | "js" | "ts" | "py" | "rs" | "java" | "cpp" | "c" | "h" | "hpp" | "xml" | "html" | "css" | "log")
     }
 
     fn extract_text(&self, file_path: &str) -> Result<String> {
@@ -124,6 +125,34 @@ impl DocumentParser for XlsxParser {
     }
 }
 
+pub struct ImageParser;
+
+impl DocumentParser for ImageParser {
+    fn can_parse(&self, file_path: &str) -> bool {
+        let ext = Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        
+        matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "svg" | "ico" | "tiff" | "tif")
+    }
+
+    fn extract_text(&self, file_path: &str) -> Result<String> {
+        // For images, we can't extract text content, but we can use the filename
+        // This allows images to be indexed and searched by filename/metadata
+        let file_name = Path::new(file_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        
+        // Return filename as "text" so it can be embedded
+        // This allows semantic search on image filenames
+        Ok(format!("image file: {}", file_name))
+    }
+}
+
 pub struct ParserRegistry {
     parsers: Vec<Box<dyn DocumentParser>>,
 }
@@ -131,6 +160,9 @@ pub struct ParserRegistry {
 impl ParserRegistry {
     pub fn new(config: &crate::config::FileTypeFilters) -> Self {
         let mut parsers: Vec<Box<dyn DocumentParser>> = vec![Box::new(TextParser)];
+        
+        // Always include image parser (images are indexed by filename)
+        parsers.push(Box::new(ImageParser));
         
         if config.include_pdf {
             parsers.push(Box::new(PdfParser));

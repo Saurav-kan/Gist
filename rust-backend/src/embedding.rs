@@ -75,4 +75,100 @@ impl EmbeddingService {
 
         Ok(false)
     }
+
+    /// Test if Ollama's /api/embeddings endpoint supports image embeddings
+    /// Returns Ok(true) if images are supported, Ok(false) if not, or Err if test failed
+    pub async fn test_image_embedding_support(&self, image_path: &str) -> Result<bool> {
+        use std::fs;
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        // Read image file
+        let image_data = fs::read(image_path)
+            .map_err(|e| anyhow::anyhow!("Failed to read image file {}: {}", image_path, e))?;
+        
+        // Encode as base64
+        let base64_image = STANDARD.encode(&image_data);
+        
+        // Try multiple possible request formats that Ollama might support
+        
+        // Format 1: images array in request
+        let request_format1 = serde_json::json!({
+            "model": self.model.clone(),
+            "prompt": "",
+            "images": [base64_image.clone()]
+        });
+        
+        // Format 2: image field in request
+        let request_format2 = serde_json::json!({
+            "model": self.model.clone(),
+            "prompt": "",
+            "image": base64_image.clone()
+        });
+        
+        // Format 3: images as part of prompt (multimodal format)
+        let request_format3 = serde_json::json!({
+            "model": self.model.clone(),
+            "prompt": format!("data:image/png;base64,{}", base64_image)
+        });
+        
+        // Try format 1
+        let response1 = self
+            .client
+            .post(&format!("{}/api/embeddings", OLLAMA_URL))
+            .json(&request_format1)
+            .send()
+            .await;
+        
+        if let Ok(resp) = response1 {
+            if resp.status().is_success() {
+                if let Ok(embedding_resp) = resp.json::<EmbeddingResponse>().await {
+                    if !embedding_resp.embedding.is_empty() {
+                        eprintln!("[IMAGE_EMBEDDING_TEST] Format 1 (images array) succeeded!");
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        
+        // Try format 2
+        let response2 = self
+            .client
+            .post(&format!("{}/api/embeddings", OLLAMA_URL))
+            .json(&request_format2)
+            .send()
+            .await;
+        
+        if let Ok(resp) = response2 {
+            if resp.status().is_success() {
+                if let Ok(embedding_resp) = resp.json::<EmbeddingResponse>().await {
+                    if !embedding_resp.embedding.is_empty() {
+                        eprintln!("[IMAGE_EMBEDDING_TEST] Format 2 (image field) succeeded!");
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        
+        // Try format 3
+        let response3 = self
+            .client
+            .post(&format!("{}/api/embeddings", OLLAMA_URL))
+            .json(&request_format3)
+            .send()
+            .await;
+        
+        if let Ok(resp) = response3 {
+            if resp.status().is_success() {
+                if let Ok(embedding_resp) = resp.json::<EmbeddingResponse>().await {
+                    if !embedding_resp.embedding.is_empty() {
+                        eprintln!("[IMAGE_EMBEDDING_TEST] Format 3 (base64 in prompt) succeeded!");
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        
+        eprintln!("[IMAGE_EMBEDDING_TEST] All formats failed - images not supported by /api/embeddings endpoint");
+        Ok(false)
+    }
 }

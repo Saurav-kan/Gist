@@ -105,17 +105,19 @@ pub async fn summarize_document(
                 .ok_or_else(|| axum::http::StatusCode::BAD_REQUEST)?;
             call_greenpt_chat_single(api_key, &prompt).await
         }
-        AiProvider::OpenAI | AiProvider::Gemini => {
-            let provider_str = match config.ai_provider {
-                AiProvider::OpenAI => "OpenAI",
-                AiProvider::Gemini => "Gemini",
-                _ => "Unknown",
-            };
+        AiProvider::OpenAI => {
             return Ok(Json(SummarizeResponse {
                 success: false,
                 summary: None,
-                error: Some(format!("{} provider not yet implemented", provider_str)),
+                error: Some("OpenAI provider not yet implemented".to_string()),
             }));
+        }
+        AiProvider::Gemini => {
+            let api_key = config.api_key.as_ref()
+                .ok_or_else(|| axum::http::StatusCode::BAD_REQUEST)?;
+            let model = config.gemini_model.as_deref()
+                .unwrap_or("gemini-pro");
+            call_gemini_chat_single(api_key, model, &prompt).await
         }
     };
 
@@ -216,17 +218,19 @@ pub async fn chat_about_document(
                 .ok_or_else(|| axum::http::StatusCode::BAD_REQUEST)?;
             call_greenpt_chat(api_key, &messages).await
         }
-        AiProvider::OpenAI | AiProvider::Gemini => {
-            let provider_str = match config.ai_provider {
-                AiProvider::OpenAI => "OpenAI",
-                AiProvider::Gemini => "Gemini",
-                _ => "Unknown",
-            };
+        AiProvider::OpenAI => {
             return Ok(Json(ChatResponse {
                 success: false,
                 message: None,
-                error: Some(format!("{} provider not yet implemented", provider_str)),
+                error: Some("OpenAI provider not yet implemented".to_string()),
             }));
+        }
+        AiProvider::Gemini => {
+            let api_key = config.api_key.as_ref()
+                .ok_or_else(|| axum::http::StatusCode::BAD_REQUEST)?;
+            let model = config.gemini_model.as_deref()
+                .unwrap_or("gemini-pro");
+            call_gemini_chat(api_key, model, &messages).await
         }
     };
 
@@ -465,4 +469,202 @@ async fn call_greenpt_chat_single(
         content: prompt.to_string(),
     }];
     call_greenpt_chat(api_key, &messages).await
+}
+
+// Fetch available Gemini models
+pub async fn get_gemini_models(
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    use reqwest::Client;
+    
+    const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+    
+    let api_key = params.get("api_key")
+        .ok_or(axum::http::StatusCode::BAD_REQUEST)?;
+    
+    let client = Client::new();
+    let url = format!("{}/models", GEMINI_BASE_URL);
+    
+    let response = client
+        .get(&url)
+        .query(&[("key", api_key)])
+        .send()
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let status = response.status();
+    if !status.is_success() {
+        let _error_text = response.text().await.unwrap_or_default();
+        eprintln!("Failed to fetch Gemini models: HTTP {}", status);
+        return Err(axum::http::StatusCode::BAD_REQUEST);
+    }
+    
+    let models_response: serde_json::Value = response.json().await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    // Extract model names from the response
+    let models = models_response
+        .get("models")
+        .and_then(|m| m.as_array())
+        .map(|models| {
+            models.iter()
+                .filter_map(|model| {
+                    let name = model.get("name")?.as_str()?;
+                    // Extract model ID from full name (e.g., "models/gemini-pro" -> "gemini-pro")
+                    name.split('/').last().map(|s| s.to_string())
+                })
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "models": models
+    })))
+}
+
+// Call Gemini API for chat
+async fn call_gemini_chat(
+    api_key: &str,
+    model: &str,
+    messages: &[ChatMessage],
+) -> Result<String, Box<dyn std::error::Error>> {
+    use reqwest::Client;
+    
+    const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+    
+    #[derive(Serialize)]
+    struct GeminiPart {
+        text: String,
+    }
+    
+    #[derive(Serialize)]
+    struct GeminiContent {
+        parts: Vec<GeminiPart>,
+        role: Option<String>, // "user" or "model"
+    }
+    
+    #[derive(Serialize)]
+    struct GeminiRequest {
+        contents: Vec<GeminiContent>,
+    }
+
+    #[derive(Deserialize)]
+    struct GeminiPartResponse {
+        text: String,
+    }
+    
+    #[derive(Deserialize)]
+    struct GeminiCandidate {
+        content: GeminiContentResponse,
+    }
+    
+    #[derive(Deserialize)]
+    struct GeminiContentResponse {
+        parts: Vec<GeminiPartResponse>,
+    }
+    
+    #[derive(Deserialize)]
+    struct GeminiResponse {
+        candidates: Vec<GeminiCandidate>,
+    }
+
+    let client = Client::new();
+    let url = format!("{}/models/{}:generateContent", GEMINI_BASE_URL, model);
+    
+    // Convert messages to Gemini format
+    // Gemini uses a different format - we need to convert our messages
+    // System messages are typically prepended to the first user message
+    let mut contents = Vec::new();
+    let mut system_message: Option<String> = None;
+    
+    for msg in messages {
+        match msg.role.as_str() {
+            "system" => {
+                // Store system message to prepend to first user message
+                system_message = Some(msg.content.clone());
+            }
+            "user" => {
+                // Combine system message with user message if present
+                let text = if let Some(sys_msg) = system_message.take() {
+                    format!("{}\n\n{}", sys_msg, msg.content)
+                } else {
+                    msg.content.clone()
+                };
+                
+                contents.push(GeminiContent {
+                    parts: vec![GeminiPart { text }],
+                    role: Some("user".to_string()),
+                });
+            }
+            "assistant" => {
+                contents.push(GeminiContent {
+                    parts: vec![GeminiPart {
+                        text: msg.content.clone(),
+                    }],
+                    role: Some("model".to_string()),
+                });
+            }
+            _ => {
+                // Treat unknown roles as user messages
+                contents.push(GeminiContent {
+                    parts: vec![GeminiPart {
+                        text: msg.content.clone(),
+                    }],
+                    role: Some("user".to_string()),
+                });
+            }
+        }
+    }
+    
+    // If we have a system message but no user messages, create one
+    if let Some(sys_msg) = system_message {
+        contents.push(GeminiContent {
+            parts: vec![GeminiPart { text: sys_msg }],
+            role: Some("user".to_string()),
+        });
+    }
+    
+    let request_body = GeminiRequest {
+        contents,
+    };
+
+    let response = client
+        .post(&url)
+        .query(&[("key", api_key)])
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Gemini API error: {} - {}", status, error_text).into());
+    }
+
+    let gemini_response: GeminiResponse = response.json().await?;
+    
+    if let Some(candidate) = gemini_response.candidates.first() {
+        if let Some(part) = candidate.content.parts.first() {
+            Ok(part.text.clone())
+        } else {
+            Err("No content in Gemini response".into())
+        }
+    } else {
+        Err("No candidates in Gemini response".into())
+    }
+}
+
+// Call Gemini for single prompt (summarize)
+async fn call_gemini_chat_single(
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let messages = vec![ChatMessage {
+        role: "user".to_string(),
+        content: prompt.to_string(),
+    }];
+    call_gemini_chat(api_key, model, &messages).await
 }

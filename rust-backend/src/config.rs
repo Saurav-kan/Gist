@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub indexed_directories: Vec<String>,
     pub file_type_filters: FileTypeFilters,
     pub chunk_size: usize,
+    #[serde(default = "default_max_context_tokens")]
+    pub max_context_tokens: usize,
     pub auto_index: bool,
     #[serde(default = "default_max_search_results")]
     pub max_search_results: usize,
@@ -19,6 +21,8 @@ pub struct AppConfig {
     pub ai_provider: AiProvider,
     #[serde(default)]
     pub ollama_model: Option<String>,
+    #[serde(default)]
+    pub gemini_model: Option<String>,
     #[serde(default)]
     pub api_key: Option<String>,
 }
@@ -42,6 +46,10 @@ fn default_ai_provider() -> AiProvider {
 
 fn default_max_search_results() -> usize {
     100
+}
+
+fn default_max_context_tokens() -> usize {
+    1500 // Safe default for most Ollama embedding models
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -72,11 +80,13 @@ impl Default for AppConfig {
                 include_xlsx: true,
             },
             chunk_size: 512,
+            max_context_tokens: 1500,
             auto_index: true,
             max_search_results: 100,
             ai_features_enabled: false,
             ai_provider: AiProvider::Ollama,
             ollama_model: None,
+            gemini_model: None,
             api_key: None,
         }
     }

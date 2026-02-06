@@ -13,11 +13,13 @@ pub struct SettingsResponse {
     indexed_directories: Vec<String>,
     file_type_filters: FileTypeFiltersResponse,
     chunk_size: usize,
+    max_context_tokens: usize,
     auto_index: bool,
     max_search_results: usize,
     ai_features_enabled: bool,
     ai_provider: String,
     ollama_model: Option<String>,
+    gemini_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     api_key: Option<String>, // Don't send API key to frontend for security
 }
@@ -36,11 +38,13 @@ pub struct UpdateSettingsRequest {
     indexed_directories: Option<Vec<String>>,
     file_type_filters: Option<FileTypeFiltersRequest>,
     chunk_size: Option<usize>,
+    max_context_tokens: Option<usize>,
     auto_index: Option<bool>,
     max_search_results: Option<usize>,
     ai_features_enabled: Option<bool>,
     ai_provider: Option<String>,
     ollama_model: Option<String>,
+    gemini_model: Option<String>,
     api_key: Option<String>,
 }
 
@@ -74,6 +78,7 @@ pub async fn get_settings(State(state): State<AppState>) -> Json<SettingsRespons
             include_xlsx: config.file_type_filters.include_xlsx,
         },
         chunk_size: config.chunk_size,
+        max_context_tokens: config.max_context_tokens,
         auto_index: config.auto_index,
         max_search_results: config.max_search_results,
         ai_features_enabled: {
@@ -87,6 +92,7 @@ pub async fn get_settings(State(state): State<AppState>) -> Json<SettingsRespons
             crate::config::AiProvider::Gemini => "gemini".to_string(),
         },
         ollama_model: config.ollama_model.clone(),
+        gemini_model: config.gemini_model.clone(),
         api_key: None, // Never send API key to frontend
     })
 }
@@ -161,6 +167,11 @@ pub async fn update_settings(
         config.chunk_size = val;
     }
 
+    if let Some(val) = request.max_context_tokens {
+        // Clamp between 500 and 8000 tokens
+        config.max_context_tokens = val.max(500).min(8000);
+    }
+
     if let Some(val) = request.auto_index {
         config.auto_index = val;
         
@@ -205,6 +216,10 @@ pub async fn update_settings(
 
     if let Some(model) = request.ollama_model {
         config.ollama_model = Some(model);
+    }
+
+    if let Some(model) = request.gemini_model {
+        config.gemini_model = Some(model);
     }
 
     if let Some(key) = request.api_key {

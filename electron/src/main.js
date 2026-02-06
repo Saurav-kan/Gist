@@ -129,14 +129,45 @@ ipcMain.handle('api-request', async (event, { method, endpoint, data }) => {
       method,
       url: `${BACKEND_URL}${endpoint}`,
       data,
-      timeout: 30000
+      timeout: 30000,
+      validateStatus: (status) => status < 500 // Don't throw on 4xx errors, let us handle them
     });
+    
+    // Check if response status indicates an error
+    if (response.status >= 400) {
+      // For 4xx errors, try to extract error message from response data
+      const errorData = response.data;
+      return {
+        success: false,
+        error: errorData?.error || errorData?.message || `HTTP ${response.status}: ${response.statusText}`,
+        data: errorData // Include data in case backend returns structured error
+      };
+    }
+    
     return { success: true, data: response.data };
   } catch (error) {
-    return {
-      success: false,
-      error: error.response?.data || error.message
-    };
+    // Handle network errors, timeouts, etc.
+    if (error.response) {
+      // Server responded with error status
+      const errorData = error.response.data;
+      return {
+        success: false,
+        error: errorData?.error || errorData?.message || `HTTP ${error.response.status}: ${error.response.statusText}`,
+        data: errorData
+      };
+    } else if (error.request) {
+      // Request made but no response received
+      return {
+        success: false,
+        error: 'No response from server. Is the backend running?'
+      };
+    } else {
+      // Error setting up request
+      return {
+        success: false,
+        error: error.message || 'Unknown error occurred'
+      };
+    }
   }
 });
 
@@ -226,4 +257,31 @@ ipcMain.handle('set-spell-checker-languages', (event, languages) => {
     return { success: true };
   }
   return { success: false };
+});
+
+// Extract icon from .exe file (Windows only)
+// Note: This is a basic implementation. For full icon extraction, consider using
+// a native module like 'node-icon-extractor' or Windows Shell API bindings
+ipcMain.handle('get-file-icon', async (event, filePath) => {
+  try {
+    // For .exe files on Windows, try to extract icon
+    if (process.platform === 'win32' && filePath.toLowerCase().endsWith('.exe')) {
+      // TODO: Implement actual icon extraction using native module or Windows API
+      // For now, return false to use default icon
+      // Example with native module:
+      // const iconExtractor = require('node-icon-extractor');
+      // const iconPath = await iconExtractor.extractIcon(filePath);
+      // if (iconPath) {
+      //   return { success: true, iconPath };
+      // }
+      
+      return { success: false };
+    }
+    
+    // Fallback to default icon
+    return { success: false };
+  } catch (error) {
+    console.error('Error extracting icon:', error);
+    return { success: false, error: error.message };
+  }
 });

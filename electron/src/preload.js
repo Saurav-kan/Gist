@@ -22,5 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSpellCheckerLanguages: () =>
     ipcRenderer.invoke('get-spell-checker-languages'),
   setSpellCheckerLanguages: (languages) =>
-    ipcRenderer.invoke('set-spell-checker-languages', languages)
+    ipcRenderer.invoke('set-spell-checker-languages', languages),
+  getFileIcon: (filePath) =>
+    ipcRenderer.invoke('get-file-icon', filePath)
 });

@@ -5,7 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
-use crate::search::cosine_similarity;
+use crate::search::{cosine_similarity, filename_similarity, hybrid_similarity};
 
 /// Adjust similarity score based on file name length and content size
 /// This helps reduce false positives from single-word files
@@ -102,9 +102,7 @@ pub async fn search_files(
     let query = request.query.trim();
     if query.is_empty() {
         eprintln!("ERROR: Empty query received");
-        return Ok(Json(SearchResponse {
-            results: Vec::new(),
-        }));
+        return Err(axum::http::StatusCode::BAD_REQUEST);
     }
     
     // Use config's max_search_results as default, but allow override up to 200
@@ -136,19 +134,79 @@ pub async fn search_files(
     
     let hnsw_guard = state.hnsw_index.read().await;
     if let Some(ref hnsw) = *hnsw_guard {
-        // Use HNSW search
-        if let Ok(hnsw_results) = hnsw.search(query_embedding.clone(), limit * 2) {
-            // Apply same adjustments to HNSW results
-            results = hnsw_results.into_iter().map(|(meta, sim)| {
-                let adjusted = adjust_similarity_for_file_length(
-                    sim,
-                    &meta.file_name,
-                    meta.file_size,
-                    query_word_count
-                );
-                (meta, adjusted)
-            }).collect();
+        // Use HNSW search (or optimized in-memory search)
+        if hnsw.len() > 0 {
+            eprintln!("[SEARCH] Using HNSW index with {} items", hnsw.len());
+            if let Ok(hnsw_results) = hnsw.search(query_embedding.clone(), limit * 2) {
+                eprintln!("[SEARCH] HNSW returned {} results", hnsw_results.len());
+                // Apply hybrid search (vector + filename) to HNSW results
+                results = hnsw_results.into_iter().map(|(meta, vector_sim)| {
+                    // Calculate filename similarity
+                    let filename_sim = filename_similarity(query, &meta.file_name);
+                    
+                    // Determine weights based on query characteristics
+                    let query_lower = query.to_lowercase();
+                    let word_count = query.split_whitespace().count();
+                    let has_extension = query.contains('.');
+                    let is_short = query.len() < 20;
+                    
+                    // Academic/technical terms that are single words but semantic
+                    let semantic_keywords = [
+                        "calculus", "algebra", "geometry", "physics", "chemistry", "biology",
+                        "history", "literature", "philosophy", "psychology", "sociology",
+                        "programming", "algorithm", "database", "network", "security",
+                        "homework", "assignment", "project", "report", "essay", "thesis",
+                        "mathematics", "math", "science", "engineering", "computer",
+                    ];
+                    
+                    let is_semantic_keyword = semantic_keywords.iter()
+                        .any(|kw| query_lower == *kw || query_lower.starts_with(kw));
+                    
+                    // Only treat as filename query if:
+                    // - Has file extension, OR
+                    // - Multiple words AND short AND high filename similarity, OR  
+                    // - Single word BUT not a semantic keyword AND high filename similarity
+                    let is_filename_query = has_extension || (
+                        word_count > 1 && is_short && filename_sim > 0.7
+                    ) || (
+                        word_count == 1 && !is_semantic_keyword && filename_sim > 0.8
+                    );
+                    
+                    let (vector_weight, filename_weight) = if is_filename_query {
+                        (0.3, 0.7) // Favor filename matching for filename-like queries
+                    } else {
+                        (0.8, 0.2) // Favor vector similarity for semantic queries
+                    };
+                    
+                    // Combine vector and filename similarity
+                    let mut hybrid_sim = hybrid_similarity(vector_sim, filename_sim, (vector_weight, filename_weight));
+                    
+                    // Add content-based penalty to reduce false positives
+                    if filename_sim < 0.1 && vector_sim > 0.6 {
+                        hybrid_sim = hybrid_sim * 0.8;
+                    }
+                    
+                    if word_count == 1 && filename_sim < 0.3 {
+                        hybrid_sim = hybrid_sim * 0.85;
+                    }
+                    
+                    // Apply penalties for short file names/content
+                    let adjusted = adjust_similarity_for_file_length(
+                        hybrid_sim,
+                        &meta.file_name,
+                        meta.file_size,
+                        query_word_count
+                    );
+                    (meta, adjusted)
+                }).collect();
+            } else {
+                eprintln!("[SEARCH] HNSW search failed, falling back to linear search");
+            }
+        } else {
+            eprintln!("[SEARCH] HNSW index is empty, falling back to linear search");
         }
+    } else {
+        eprintln!("[SEARCH] No HNSW index available, using linear search");
     }
     drop(hnsw_guard);
     
@@ -176,15 +234,72 @@ pub async fn search_files(
         
         for chunk in files_with_embeddings.chunks(chunk_size) {
             let chunk_tasks: Vec<_> = chunk.iter().map(|(metadata, embedding)| {
-                let query = query_embedding.clone();
+                let query_emb = query_embedding.clone();
                 let emb = embedding.clone();
                 let meta = metadata.clone();
+                let query_str = query.to_string();
                 tokio::spawn(async move {
-                    let base_similarity = cosine_similarity(&query, &emb);
+                    // Calculate vector similarity
+                    let vector_sim = cosine_similarity(&query_emb, &emb);
+                    
+                    // Calculate filename similarity
+                    let filename_sim = filename_similarity(&query_str, &meta.file_name);
+                    
+                    // Determine weights based on query characteristics
+                    // Single-word academic/technical terms should be treated as semantic queries
+                    let query_lower = query_str.to_lowercase();
+                    let word_count = query_str.split_whitespace().count();
+                    let has_extension = query_str.contains('.');
+                    let is_short = query_str.len() < 20;
+                    
+                    // Academic/technical terms that are single words but semantic
+                    let semantic_keywords = [
+                        "calculus", "algebra", "geometry", "physics", "chemistry", "biology",
+                        "history", "literature", "philosophy", "psychology", "sociology",
+                        "programming", "algorithm", "database", "network", "security",
+                        "homework", "assignment", "project", "report", "essay", "thesis",
+                        "mathematics", "math", "science", "engineering", "computer",
+                    ];
+                    
+                    let is_semantic_keyword = semantic_keywords.iter()
+                        .any(|kw| query_lower == *kw || query_lower.starts_with(kw));
+                    
+                    // Only treat as filename query if:
+                    // - Has file extension, OR
+                    // - Multiple words AND short AND high filename similarity, OR  
+                    // - Single word BUT not a semantic keyword AND high filename similarity
+                    let is_filename_query = has_extension || (
+                        word_count > 1 && is_short && filename_sim > 0.7
+                    ) || (
+                        word_count == 1 && !is_semantic_keyword && filename_sim > 0.8
+                    );
+                    
+                    let (vector_weight, filename_weight) = if is_filename_query {
+                        (0.3, 0.7) // Favor filename matching for filename-like queries
+                    } else {
+                        (0.8, 0.2) // Favor vector similarity for semantic queries (increased from 0.7/0.3)
+                    };
+                    
+                    // Combine vector and filename similarity
+                    let mut hybrid_sim = hybrid_similarity(vector_sim, filename_sim, (vector_weight, filename_weight));
+                    
+                    // Add content-based penalty to reduce false positives
+                    // If filename similarity is very low (< 0.1) but vector similarity is high,
+                    // this might be a false positive - apply penalty
+                    if filename_sim < 0.1 && vector_sim > 0.6 {
+                        // Reduce similarity by 20% if filename doesn't match at all
+                        hybrid_sim = hybrid_sim * 0.8;
+                    }
+                    
+                    // Also penalize if query is a single word and filename doesn't contain it
+                    if word_count == 1 && filename_sim < 0.3 {
+                        // Additional penalty for single-word queries with poor filename match
+                        hybrid_sim = hybrid_sim * 0.85;
+                    }
                     
                     // Apply penalties for short file names/content
                     let adjusted_similarity = adjust_similarity_for_file_length(
-                        base_similarity,
+                        hybrid_sim,
                         &meta.file_name,
                         meta.file_size,
                         query_word_count

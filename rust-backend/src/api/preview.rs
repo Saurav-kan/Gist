@@ -28,7 +28,35 @@ pub struct PreviewResponse {
 pub async fn get_file_preview(
     Query(params): Query<PreviewRequest>,
 ) -> Result<Json<PreviewResponse>, axum::http::StatusCode> {
+    // Validate path parameter
+    if params.path.is_empty() {
+        return Ok(Json(PreviewResponse {
+            success: false,
+            file_type: "unknown".to_string(),
+            content: None,
+            preview_available: false,
+            size: 0,
+            modified_time: None,
+            created_time: None,
+            error: Some("File path is required".to_string()),
+        }));
+    }
+    
     let file_path = PathBuf::from(&params.path);
+    
+    // Basic path validation to prevent directory traversal
+    if file_path.to_string_lossy().contains("..") {
+        return Ok(Json(PreviewResponse {
+            success: false,
+            file_type: "unknown".to_string(),
+            content: None,
+            preview_available: false,
+            size: 0,
+            modified_time: None,
+            created_time: None,
+            error: Some("Invalid file path".to_string()),
+        }));
+    }
     
     if !file_path.exists() {
         return Ok(Json(PreviewResponse {
@@ -39,7 +67,7 @@ pub async fn get_file_preview(
             size: 0,
             modified_time: None,
             created_time: None,
-            error: Some("File not found".to_string()),
+            error: Some(format!("File not found: {}", params.path)),
         }));
     }
     

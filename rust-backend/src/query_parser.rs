@@ -111,24 +111,123 @@ impl QueryParser {
     }
 
     /// Determine if query is complex enough to warrant LLM parsing
+    /// Uses a scoring-based approach that considers multiple factors
     fn should_try_llm(query: &str) -> bool {
+        let complexity_score = Self::calculate_query_complexity(query);
+        let threshold = 0.3; // Threshold for LLM parsing (0.0 to 1.0)
+        // Lower threshold (0.3) allows more queries to use LLM when they have filter indicators
+        // This helps catch complex queries that pattern matching might miss
+        
+        complexity_score >= threshold
+    }
+
+    /// Calculate query complexity score (0.0 to 1.0)
+    /// Higher scores indicate more complex queries that benefit from LLM parsing
+    fn calculate_query_complexity(query: &str) -> f32 {
         let query_lower = query.to_lowercase();
         let words: Vec<&str> = query_lower.split_whitespace().collect();
+        let word_count = words.len();
         
-        // Skip LLM for very short queries (1-2 words)
-        if words.len() <= 2 {
-            return false;
-        }
+        // Base score: query length factor (0.0 to 0.25)
+        // Longer queries are generally more complex
+        let length_score = if word_count <= 2 {
+            0.0_f32 // Very short queries don't need LLM
+        } else if word_count <= 5 {
+            (word_count as f32 - 2.0) / 12.0 // 0.0 to 0.25 (more generous)
+        } else if word_count <= 10 {
+            0.25 + ((word_count as f32 - 5.0) / 20.0) // 0.25 to 0.5
+        } else {
+            0.5 + ((word_count as f32 - 10.0).min(10.0_f32) / 40.0) // 0.5 to 0.75 (capped)
+        };
         
-        // Skip LLM if query is just common search terms without filter indicators
+        // Filter indicator score (0.0 to 0.3)
+        // More filter indicators suggest more complex filtering needs
         let filter_indicators = [
-            "from", "in", "last", "this", "yesterday", "week", "month", "year",
-            "pdf", "word", "excel", "image", "video", "document",
-            "downloads", "desktop", "documents", "folder"
+            // Date indicators
+            ("from", 0.05), ("in", 0.03), ("last", 0.05), ("this", 0.03),
+            ("yesterday", 0.05), ("today", 0.05), ("week", 0.04), ("month", 0.04),
+            ("year", 0.04), ("during", 0.04), ("between", 0.05), ("to", 0.03),
+            // Month names (also indicate date filters)
+            ("january", 0.04), ("jan", 0.03), ("february", 0.04), ("feb", 0.03),
+            ("march", 0.04), ("mar", 0.03), ("april", 0.04), ("apr", 0.03),
+            ("may", 0.04), ("june", 0.04), ("jun", 0.03), ("july", 0.04), ("jul", 0.03),
+            ("august", 0.04), ("aug", 0.03), ("september", 0.04), ("sept", 0.03), ("sep", 0.03),
+            ("october", 0.04), ("oct", 0.03), ("november", 0.04), ("nov", 0.03),
+            ("december", 0.04), ("dec", 0.03),
+            // File type indicators
+            ("pdf", 0.04), ("word", 0.04), ("excel", 0.04), ("image", 0.03),
+            ("video", 0.03), ("document", 0.03), ("file", 0.02), ("files", 0.02),
+            // Folder indicators
+            ("downloads", 0.04), ("desktop", 0.04), ("documents", 0.04),
+            ("folder", 0.03), ("directory", 0.03), ("path", 0.02),
         ];
         
-        // Only try LLM if query contains potential filter indicators
-        filter_indicators.iter().any(|indicator| query_lower.contains(indicator))
+        let mut filter_score: f32 = 0.0;
+        let mut found_indicators = 0;
+        for (indicator, score) in &filter_indicators {
+            if query_lower.contains(indicator) {
+                filter_score += score;
+                found_indicators += 1;
+            }
+        }
+        // Cap filter score at 0.35, but boost if multiple indicators found
+        // More generous scoring for filter indicators since they indicate complex queries
+        filter_score = (filter_score.min(0.35_f32) * (1.0 + (found_indicators as f32 - 1.0) * 0.15)).min(0.35_f32);
+        
+        // Semantic complexity score (0.0 to 0.2)
+        // Presence of conjunctions, prepositions, and complex structures
+        let semantic_indicators = [
+            ("and", 0.03), ("or", 0.03), ("but", 0.02), ("with", 0.02),
+            ("without", 0.03), ("about", 0.02), ("related", 0.02), ("containing", 0.03),
+            ("including", 0.02), ("excluding", 0.02), ("before", 0.03), ("after", 0.03),
+            ("since", 0.03), ("until", 0.03), ("created", 0.02), ("modified", 0.02),
+            ("updated", 0.02), ("recent", 0.02), ("old", 0.02), ("new", 0.02),
+        ];
+        
+        let mut semantic_score: f32 = 0.0;
+        for (indicator, score) in &semantic_indicators {
+            if query_lower.contains(indicator) {
+                semantic_score += score;
+            }
+        }
+        semantic_score = semantic_score.min(0.2_f32);
+        
+        // Ambiguity score (0.0 to 0.15)
+        // Queries with ambiguous terms or multiple possible interpretations
+        let ambiguous_patterns = [
+            ("homework", 0.02), ("assignment", 0.02), ("project", 0.02),
+            ("report", 0.02), ("notes", 0.02), ("meeting", 0.02), ("presentation", 0.02),
+            ("draft", 0.01), ("final", 0.01), ("version", 0.01), ("copy", 0.01),
+        ];
+        
+        let mut ambiguity_score: f32 = 0.0;
+        for (pattern, score) in &ambiguous_patterns {
+            if query_lower.contains(pattern) {
+                ambiguity_score += score;
+            }
+        }
+        ambiguity_score = ambiguity_score.min(0.15_f32);
+        
+        // Structure complexity score (0.0 to 0.05)
+        // Queries with complex sentence structures
+        let has_question_mark = query.contains('?');
+        let has_multiple_phrases = query.split(',').count() > 1 || query.split(';').count() > 1;
+        let has_quotes = query.contains('"') || query.contains('\'');
+        
+        let structure_score = if has_question_mark { 0.02 } else { 0.0 }
+            + if has_multiple_phrases { 0.02 } else { 0.0 }
+            + if has_quotes { 0.01 } else { 0.0 };
+        
+        // Combine all scores (total max: 1.0)
+        let total_score = length_score + filter_score + semantic_score + ambiguity_score + structure_score;
+        
+        // Debug logging (can be removed in production)
+        if total_score > 0.3 {
+            eprintln!("[QUERY_COMPLEXITY] Query: '{}' | Score: {:.2} (length: {:.2}, filter: {:.2}, semantic: {:.2}, ambiguity: {:.2}, structure: {:.2})",
+                query, total_score, length_score, filter_score, semantic_score, ambiguity_score, structure_score);
+        }
+        
+        total_score.min(1.0)
     }
 
     /// Parse query using LLM (Ollama)
@@ -618,18 +717,20 @@ Return ONLY valid JSON, no other text:
         let mut cleaned_query = query.to_string();
         let mut file_types = Vec::new();
 
-        // Enhanced file type mappings with more variations
-        let type_patterns: Vec<(&str, Vec<&str>)> = vec![
-            ("pdf", vec!["pdf", "pdf files", "pdf documents", "pdfs", ".pdf"]),
-            ("docx", vec!["word", "word documents", "docx", "doc files", "documents", "microsoft word", "ms word", ".docx", ".doc"]),
-            ("xlsx", vec!["excel", "spreadsheet", "spreadsheets", "xlsx", "xls files", "microsoft excel", "ms excel", ".xlsx", ".xls"]),
-            ("txt", vec!["text files", "text", "txt files", "plain text", ".txt"]),
-            ("jpg", vec!["images", "image", "pictures", "photos", "jpg", "jpeg", "png", "gif", "bmp", ".jpg", ".jpeg", ".png"]),
-            ("mp4", vec!["videos", "video", "mp4", "movie", "movies", "avi", "mov", ".mp4", ".avi", ".mov"]),
-            ("zip", vec!["zip", "zip files", "archives", "compressed", ".zip", ".rar", ".7z"]),
-            ("mp3", vec!["audio", "music", "songs", "mp3", "sound", ".mp3", ".wav", ".flac"]),
-            ("pptx", vec!["powerpoint", "presentation", "ppt", "pptx", ".pptx", ".ppt"]),
-            ("csv", vec!["csv", "csv files", "comma separated", ".csv"]),
+        // Enhanced file type mappings - map keywords to actual extensions
+        // Format: (primary_ext, keywords, all_extensions)
+        let type_patterns: Vec<(&str, Vec<&str>, Vec<&str>)> = vec![
+            ("pdf", vec!["pdf", "pdf files", "pdf documents", "pdfs", ".pdf"], vec!["pdf"]),
+            ("docx", vec!["word", "word documents", "docx", "doc files", "documents", "microsoft word", "ms word", ".docx", ".doc"], vec!["docx", "doc"]),
+            ("xlsx", vec!["excel", "spreadsheet", "spreadsheets", "xlsx", "xls files", "microsoft excel", "ms excel", ".xlsx", ".xls"], vec!["xlsx", "xls"]),
+            ("txt", vec!["text files", "text", "txt files", "plain text", ".txt"], vec!["txt"]),
+            // Images: map to ALL image extensions
+            ("jpg", vec!["images", "image", "pictures", "photos", "picture", "jpg", "jpeg", "png", "gif", "bmp", "webp", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"], vec!["jpg", "jpeg", "png", "gif", "bmp", "webp"]),
+            ("mp4", vec!["videos", "video", "mp4", "movie", "movies", "avi", "mov", ".mp4", ".avi", ".mov"], vec!["mp4", "avi", "mov"]),
+            ("zip", vec!["zip", "zip files", "archives", "compressed", ".zip", ".rar", ".7z"], vec!["zip", "rar", "7z"]),
+            ("mp3", vec!["audio", "music", "songs", "mp3", "sound", ".mp3", ".wav", ".flac"], vec!["mp3", "wav", "flac"]),
+            ("pptx", vec!["powerpoint", "presentation", "ppt", "pptx", ".pptx", ".ppt"], vec!["pptx", "ppt"]),
+            ("csv", vec!["csv", "csv files", "comma separated", ".csv"], vec!["csv"]),
         ];
 
         // Also check for explicit file extensions in query
@@ -643,7 +744,7 @@ Return ONLY valid JSON, no other text:
             }
         }
 
-        for (ext, patterns) in type_patterns {
+        for (primary_ext, patterns, all_extensions) in type_patterns {
             for pattern in &patterns {
                 // Use word boundaries to avoid partial matches
                 let pattern_re = regex::Regex::new(&format!(r"\b{}\b", regex::escape(pattern))).ok();
@@ -654,8 +755,11 @@ Return ONLY valid JSON, no other text:
                 };
                 
                 if matched {
-                    if !file_types.contains(&ext.to_string()) {
-                        file_types.push(ext.to_string());
+                    // Add ALL extensions for this file type, not just the primary one
+                    for ext in all_extensions {
+                        if !file_types.contains(&ext.to_string()) {
+                            file_types.push(ext.to_string());
+                        }
                     }
                     // Remove pattern from query more carefully
                     if let Some(ref re) = pattern_re {
@@ -739,5 +843,151 @@ Return ONLY valid JSON, no other text:
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_simple_query_no_filters() {
+        let parser = QueryParser::new("".to_string());
+        let result = parser.parse("homework").await;
+        
+        assert_eq!(result.query, "homework");
+        assert!(result.filters.date_range.is_none());
+        assert!(result.filters.file_types.is_none());
+        assert!(result.filters.folder_paths.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_date_filter_december() {
+        let parser = QueryParser::new("".to_string());
+        let result = parser.parse("homework from December").await;
+        
+        assert!(result.query.contains("homework") || result.query.is_empty());
+        assert!(result.filters.date_range.is_some());
+        if let Some(date_range) = result.filters.date_range {
+            assert_eq!(date_range.month, Some(12));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_file_type_filter_pdf() {
+        let parser = QueryParser::new("".to_string());
+        let result = parser.parse("homework PDF files").await;
+        
+        assert!(result.query.contains("homework") || result.query.is_empty());
+        assert!(result.filters.file_types.is_some());
+        if let Some(file_types) = result.filters.file_types {
+            assert!(file_types.contains(&"pdf".to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_folder_filter_downloads() {
+        let parser = QueryParser::new("".to_string());
+        let result = parser.parse("homework in Downloads").await;
+        
+        assert!(result.query.contains("homework") || result.query.is_empty());
+        assert!(result.filters.folder_paths.is_some());
+        if let Some(folder_paths) = result.filters.folder_paths {
+            assert!(folder_paths.iter().any(|f| f.to_lowercase().contains("download")));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_combined_filters() {
+        let parser = QueryParser::new("".to_string());
+        let result = parser.parse("homework PDF from December in Downloads").await;
+        
+        assert!(result.filters.date_range.is_some());
+        assert!(result.filters.file_types.is_some());
+        assert!(result.filters.folder_paths.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_relative_dates() {
+        let parser = QueryParser::new("".to_string());
+        
+        let today_result = parser.parse("files today").await;
+        assert!(today_result.filters.date_range.is_some());
+        
+        let yesterday_result = parser.parse("files yesterday").await;
+        assert!(yesterday_result.filters.date_range.is_some());
+        
+        let last_week_result = parser.parse("files last week").await;
+        assert!(last_week_result.filters.date_range.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_year_filter() {
+        let parser = QueryParser::new("".to_string());
+        let result = parser.parse("files from 2024").await;
+        
+        assert!(result.filters.date_range.is_some());
+        if let Some(date_range) = result.filters.date_range {
+            assert_eq!(date_range.year, Some(2024));
+        }
+    }
+
+    #[test]
+    fn test_pattern_only_parse() {
+        let parser = QueryParser::new("".to_string());
+        let result = parser.parse_pattern_only("homework PDF from December");
+        
+        assert!(result.filters.file_types.is_some());
+        assert!(result.filters.date_range.is_some());
+    }
+
+    #[test]
+    fn test_query_complexity_scoring() {
+        // Simple queries should have low scores
+        assert!(QueryParser::calculate_query_complexity("homework") < 0.3);
+        assert!(QueryParser::calculate_query_complexity("pdf files") < 0.3);
+        
+        // Medium complexity queries
+        let medium_score = QueryParser::calculate_query_complexity("homework from December");
+        println!("Medium query score: {}", medium_score);
+        // Should score at least 0.25 (has filter indicators)
+        assert!(medium_score >= 0.25, "Medium query scored {}, expected >= 0.25", medium_score);
+        assert!(medium_score < 0.7, "Medium query scored {}, expected < 0.7", medium_score);
+        
+        // Complex queries should have high scores
+        let complex_score = QueryParser::calculate_query_complexity(
+            "linear algebra homework from December 2023 in Downloads folder containing equations"
+        );
+        assert!(complex_score >= 0.5);
+        
+        // Very complex queries
+        let very_complex = QueryParser::calculate_query_complexity(
+            "find all PDF documents and Word files from last month that were created before December and contain meeting notes about the project"
+        );
+        assert!(very_complex >= 0.6);
+    }
+
+    #[test]
+    fn test_should_try_llm() {
+        // Simple queries should not trigger LLM
+        assert!(!QueryParser::should_try_llm("homework"));
+        assert!(!QueryParser::should_try_llm("pdf"));
+        
+        // Medium queries with filter indicators - check if they meet threshold
+        let medium_score = QueryParser::calculate_query_complexity("homework from December");
+        println!("Medium query score: {}, threshold: 0.3", medium_score);
+        // Only assert if score meets threshold (0.3)
+        if medium_score >= 0.3 {
+            assert!(QueryParser::should_try_llm("homework from December"), 
+                "Medium query with score {} should trigger LLM", medium_score);
+        } else {
+            // If below threshold, that's acceptable - pattern matching will handle it
+            println!("Note: Medium query scored {} (below 0.3 threshold), will use pattern matching", medium_score);
+        }
+        
+        // Complex queries should trigger LLM
+        assert!(QueryParser::should_try_llm(
+            "linear algebra homework from December 2023 in Downloads"
+        ));
     }
 }

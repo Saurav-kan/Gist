@@ -58,6 +58,7 @@ pub async fn start_indexing(
                         if new_index.rebuild_from_embeddings(embeddings).is_ok() {
                             let mut index_guard = hnsw_index_clone.write().await;
                             *index_guard = Some(new_index);
+                            eprintln!("[HNSW] Index rebuilt with {} items", index_guard.as_ref().map(|i| i.len()).unwrap_or(0));
                         }
                     }
                 }

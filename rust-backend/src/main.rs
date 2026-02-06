@@ -88,6 +88,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/index/clear", post(api::index::clear_index))
         .route("/api/ai/summarize", post(api::ai::summarize_document))
         .route("/api/ai/chat", post(api::ai::chat_about_document))
+        .route("/api/ai/gemini-models", get(api::ai::get_gemini_models))
+        .route("/api/test/image-embedding", get(api::test_image_embedding::test_image_embedding))
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 

@@ -8,3 +8,4 @@ pub mod parse;
 pub mod tree;
 pub mod preview;
 pub mod ai;
+pub mod test_image_embedding;

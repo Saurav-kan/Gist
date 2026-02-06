@@ -482,26 +482,38 @@ async function performSearch() {
       filters: filtersToSend
     });
     
-    if (response.success && response.data.results) {
-      lastSearchResults = response.data.results;
-      console.log('Search results received:', lastSearchResults.length, 'results');
-      if (lastSearchResults.length > 0) {
-        console.log('Sample similarities:', lastSearchResults.slice(0, 5).map(r => ({
-          file: r.file_name,
-          similarity: (r.similarity * 100).toFixed(1) + '%'
-        })));
-        console.log('Similarity threshold:', similarityThreshold + '%');
-      } else {
-        console.warn('No results returned from backend');
-      }
-      if (resultsCount) resultsCount.textContent = `Found ${lastSearchResults.length} relevant documents`;
-      filterResultsBySimilarity();
+    if (response.success && response.data) {
+      // Handle both response.data.results (if wrapped) and response.data directly
+      const results = response.data.results || response.data;
       
-      // Log after filtering
-      const displayedResults = document.querySelectorAll('.result-item').length;
-      console.log(`After similarity filtering: ${displayedResults} results displayed (threshold: ${similarityThreshold}%)`);
+      if (Array.isArray(results)) {
+        lastSearchResults = results;
+        console.log('Search results received:', lastSearchResults.length, 'results');
+        if (lastSearchResults.length > 0) {
+          console.log('Sample similarities:', lastSearchResults.slice(0, 5).map(r => ({
+            file: r.file_name,
+            similarity: (r.similarity * 100).toFixed(1) + '%'
+          })));
+          console.log('Similarity threshold:', similarityThreshold + '%');
+        } else {
+          console.warn('No results returned from backend');
+        }
+        if (resultsCount) resultsCount.textContent = `Found ${lastSearchResults.length} relevant documents`;
+        filterResultsBySimilarity();
+        
+        // Log after filtering
+        const displayedResults = document.querySelectorAll('.result-item').length;
+        console.log(`After similarity filtering: ${displayedResults} results displayed (threshold: ${similarityThreshold}%)`);
+      } else {
+        console.error('Invalid search response format:', response.data);
+        showError('Search failed: Invalid response format');
+        if (loadingState) loadingState.style.display = 'none';
+        if (initialState) initialState.style.display = 'flex';
+      }
     } else {
-      showError('Search failed: ' + (response.error || 'Unknown error'));
+      const errorMsg = response.error || response.data?.error || 'Unknown error';
+      console.error('Search failed:', errorMsg, response);
+      showError('Search failed: ' + errorMsg);
       if (loadingState) loadingState.style.display = 'none';
       if (initialState) initialState.style.display = 'flex';
     }
@@ -669,7 +681,7 @@ async function displayResults(results) {
     
     item.innerHTML = `
       <div class="result-header">
-        <div class="file-icon-wrapper" data-file-type="${fileIconData.category}">${fileIconData.icon}</div>
+        <div class="file-icon-wrapper" data-file-type="${fileIconData.category}" data-file-path="${escapeHtml(filePath)}">${fileIconData.icon}</div>
         <div class="file-info">
           <div class="file-name" title="${escapeHtml(fileName)}">${escapeHtml(displayFileName)}</div>
           ${description ? `<div class="file-preview">${escapeHtml(description)}</div>` : ''}
@@ -680,6 +692,11 @@ async function displayResults(results) {
         <div class="relevance-tag">${(result.similarity * 100).toFixed(0)}% Match</div>
       </div>
     `;
+    
+    // Enhance .exe icon asynchronously if available
+    if (fileName.toLowerCase().endsWith('.exe')) {
+      enhanceExeIcon(item.querySelector('.file-icon-wrapper'), filePath);
+    }
     
     item.addEventListener('click', async () => {
       await openPreviewPanel(filePath);
@@ -695,6 +712,21 @@ function getFileExtension(filename) {
   return parts.length > 1 ? parts[parts.length - 1] : 'file';
 }
 
+// Enhance .exe icon asynchronously if custom icon is available
+async function enhanceExeIcon(iconElement, filePath) {
+  if (!iconElement || !filePath) return;
+  
+  try {
+    const result = await window.electronAPI.getFileIcon(filePath);
+    if (result.success && result.iconPath) {
+      iconElement.innerHTML = `<img src="${result.iconPath}" alt="icon" style="width: 24px; height: 24px;" />`;
+    }
+  } catch (error) {
+    // Icon extraction failed, keep default icon
+    console.debug('Failed to extract .exe icon:', error);
+  }
+}
+
 // Get appropriate icon SVG and file type category for file type
 function getFileIcon(filename, isDirectory = false) {
   if (isDirectory) {
@@ -705,6 +737,14 @@ function getFileIcon(filename, isDirectory = false) {
   }
   
   const ext = getFileExtension(filename).toLowerCase();
+  
+  // Default executable icon for .exe files (can be enhanced asynchronously)
+  if (filename.toLowerCase().endsWith('.exe')) {
+    return {
+      icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`,
+      category: 'executable'
+    };
+  }
   
   // PDF - Red
   if (ext === 'pdf') {
@@ -730,6 +770,26 @@ function getFileIcon(filename, isDirectory = false) {
     };
   }
   
+  // Config files - Orange/Yellow (gear/cog icon)
+  const configTypes = {
+    'json': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+    'yaml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+    'yml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+    'toml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+    'ini': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+    'cfg': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+    'conf': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+    'properties': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+    'config': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path></svg>`,
+  };
+  
+  if (configTypes[ext]) {
+    return {
+      icon: configTypes[ext],
+      category: 'config'
+    };
+  }
+  
   // Other document types
   const documentTypes = {
     'xlsx': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>`,
@@ -750,10 +810,7 @@ function getFileIcon(filename, isDirectory = false) {
     'go': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
     'html': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
     'css': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
-    'json': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
     'xml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
-    'yaml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
-    'yml': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`,
     'md': `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>`,
   };
   
@@ -880,6 +937,16 @@ async function openPreviewPanel(filePath) {
     if (response.success && response.data) {
       const previewData = response.data;
       
+      // Check if preview was successful
+      if (previewData.success === false) {
+        // Backend returned error in response body
+        if (previewError) {
+          previewError.style.display = 'block';
+          previewError.textContent = previewData.error || 'Failed to load preview.';
+        }
+        return;
+      }
+      
       // Hide all preview sections first
       if (previewText) previewText.style.display = 'none';
       if (previewImage) previewImage.style.display = 'none';
@@ -989,17 +1056,36 @@ function initializeAiFeatures(filePath) {
   currentAiFilePath = filePath;
   chatHistory = [];
   
+  // Reset tabs to Overview
+  document.querySelectorAll('.ai-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.ai-pane').forEach(p => p.classList.remove('active'));
+  
+  const overviewTab = document.querySelector('.ai-tab[data-tab="overview"]');
+  const overviewPane = document.getElementById('ai-pane-overview');
+  if (overviewTab) overviewTab.classList.add('active');
+  if (overviewPane) overviewPane.classList.add('active');
+
   // Clear previous results
   const summarizeResult = document.getElementById('ai-summarize-result');
+  const summarizeEmpty = document.getElementById('ai-summarize-empty');
   const chatMessages = document.getElementById('ai-chat-messages');
   
   if (summarizeResult) {
     summarizeResult.style.display = 'none';
     summarizeResult.textContent = '';
   }
+
+  if (summarizeEmpty) {
+    summarizeEmpty.style.display = 'flex';
+  }
   
   if (chatMessages) {
-    chatMessages.innerHTML = '';
+    // Keep the welcome message
+    chatMessages.innerHTML = `
+      <div class="ai-chat-welcome">
+        <p>Ask anything about this document. The AI has access to the full text content.</p>
+      </div>
+    `;
   }
   
   // Set up event listeners
@@ -1007,6 +1093,37 @@ function initializeAiFeatures(filePath) {
 }
 
 function setupAiEventListeners() {
+  // Tab switching
+  document.querySelectorAll('.ai-tab').forEach(tab => {
+    if (!tab.dataset.listenerAdded) {
+      tab.dataset.listenerAdded = 'true';
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.tab;
+        
+        // Update tabs
+        document.querySelectorAll('.ai-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        
+        // Update panes
+        document.querySelectorAll('.ai-pane').forEach(p => p.classList.remove('active'));
+        const targetPane = document.getElementById(`ai-pane-${target}`);
+        if (targetPane) targetPane.classList.add('active');
+      });
+    }
+  });
+
+  // Toggle expand/collapse
+  const toggleBtn = document.getElementById('ai-toggle-expand');
+  const aiSection = document.getElementById('ai-section');
+  if (toggleBtn && aiSection && !toggleBtn.dataset.listenerAdded) {
+    toggleBtn.dataset.listenerAdded = 'true';
+    toggleBtn.addEventListener('click', () => {
+      aiSection.classList.toggle('collapsed');
+      const isCollapsed = aiSection.classList.contains('collapsed');
+      toggleBtn.title = isCollapsed ? 'Expand AI section' : 'Collapse AI section';
+    });
+  }
+
   // Summarize button
   const summarizeBtn = document.getElementById('ai-summarize-btn');
   if (summarizeBtn && !summarizeBtn.dataset.listenerAdded) {
@@ -1043,14 +1160,20 @@ async function summarizeDocument() {
   
   const summarizeBtn = document.getElementById('ai-summarize-btn');
   const summarizeResult = document.getElementById('ai-summarize-result');
+  const summarizeEmpty = document.getElementById('ai-summarize-empty');
   
   if (!summarizeBtn || !summarizeResult) return;
   
+  const btnText = summarizeBtn.querySelector('.btn-text');
+  const loadingDots = summarizeBtn.querySelector('.ai-loading-dots');
+  
   // Show loading state
   summarizeBtn.disabled = true;
-  summarizeBtn.textContent = 'Summarizing...';
-  summarizeResult.style.display = 'block';
-  summarizeResult.textContent = 'Generating summary...';
+  if (btnText) btnText.textContent = 'Summarizing';
+  if (loadingDots) loadingDots.style.display = 'flex';
+  if (summarizeEmpty) summarizeEmpty.style.display = 'none';
+  
+  summarizeResult.style.display = 'none';
   
   try {
     const response = await window.electronAPI.apiRequest('POST', '/api/ai/summarize', {
@@ -1064,18 +1187,22 @@ async function summarizeDocument() {
       } else {
         summarizeResult.textContent = 'Failed to generate summary: ' + (response.data.error || 'Unknown error');
         summarizeResult.style.color = '#ef4444';
+        summarizeResult.style.display = 'block';
       }
     } else {
       summarizeResult.textContent = 'Failed to generate summary: ' + (response.error || 'Unknown error');
       summarizeResult.style.color = '#ef4444';
+      summarizeResult.style.display = 'block';
     }
   } catch (error) {
     console.error('Summarize error:', error);
     summarizeResult.textContent = 'Error: ' + error.message;
     summarizeResult.style.color = '#ef4444';
+    summarizeResult.style.display = 'block';
   } finally {
     summarizeBtn.disabled = false;
-    summarizeBtn.textContent = 'Summarize Document';
+    if (btnText) btnText.textContent = 'Summarize Document';
+    if (loadingDots) loadingDots.style.display = 'none';
   }
 }
 
@@ -1102,7 +1229,15 @@ async function sendChatMessage() {
   
   // Add loading message
   const loadingId = 'loading-' + Date.now();
-  addChatMessage('assistant', 'Thinking...', loadingId);
+  addChatMessage('assistant', '', loadingId);
+  const loadingElement = document.getElementById(loadingId);
+  if (loadingElement) {
+    loadingElement.innerHTML = `
+      <div class="ai-loading-dots">
+        <span></span><span></span><span></span>
+      </div>
+    `;
+  }
   
   try {
     // Prepare conversation history
@@ -1539,6 +1674,14 @@ async function loadSettings() {
         ollamaModelInput.value = settings.ollama_model;
       }
       
+      if (settings.gemini_model) {
+        const geminiModelSelect = document.getElementById('gemini-model-select');
+        if (geminiModelSelect) {
+          // Store it to be restored after models are loaded
+          geminiModelSelect.dataset.savedModel = settings.gemini_model;
+        }
+      }
+      
       // Don't load API key (security - backend doesn't send it)
     }
   } catch (error) {
@@ -1546,17 +1689,90 @@ async function loadSettings() {
   }
 }
 
-function updateAiProviderUI(provider) {
+async function updateAiProviderUI(provider) {
   const ollamaSettings = document.getElementById('ollama-settings');
   const apiKeySettings = document.getElementById('api-key-settings');
+  const geminiSettings = document.getElementById('gemini-settings');
   
   if (provider === 'ollama') {
     if (ollamaSettings) ollamaSettings.style.display = 'block';
     if (apiKeySettings) apiKeySettings.style.display = 'none';
+    if (geminiSettings) geminiSettings.style.display = 'none';
+  } else if (provider === 'gemini') {
+    if (ollamaSettings) ollamaSettings.style.display = 'none';
+    if (apiKeySettings) apiKeySettings.style.display = 'block';
+    if (geminiSettings) geminiSettings.style.display = 'block';
+    // Fetch Gemini models when Gemini is selected
+    await loadGeminiModels();
   } else {
     if (ollamaSettings) ollamaSettings.style.display = 'none';
     if (apiKeySettings) apiKeySettings.style.display = 'block';
+    if (geminiSettings) geminiSettings.style.display = 'none';
   }
+}
+
+// Load available Gemini models from API
+async function loadGeminiModels() {
+  const geminiModelSelect = document.getElementById('gemini-model-select');
+  const apiKeyInput = document.getElementById('api-key-input');
+  
+  if (!geminiModelSelect || !apiKeyInput) return;
+  
+  let apiKey = apiKeyInput.value.trim();
+  
+  // If no API key in input, try to see if one is already saved in backend
+  // We can't see the key, but the backend can use it if we don't send one
+  // Actually, for the model list endpoint, we MUST provide a key currently
+  
+  if (!apiKey) {
+    geminiModelSelect.innerHTML = '<option value="gemini-pro">Enter API key to load models</option>';
+    return;
+  }
+  
+  try {
+    geminiModelSelect.innerHTML = '<option value="gemini-pro">Loading models...</option>';
+    geminiModelSelect.disabled = true;
+    
+    const response = await window.electronAPI.apiRequest('GET', `/api/ai/gemini-models?api_key=${encodeURIComponent(apiKey)}`);
+    
+    if (response.success && response.data && response.data.models) {
+      const models = response.data.models;
+      geminiModelSelect.innerHTML = '';
+      
+      models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        geminiModelSelect.appendChild(option);
+      });
+      
+      // Restore saved model if available
+      const savedModel = geminiModelSelect.dataset.savedModel;
+      if (savedModel && models.includes(savedModel)) {
+        geminiModelSelect.value = savedModel;
+      } else if (models.includes('gemini-1.5-pro')) {
+        geminiModelSelect.value = 'gemini-1.5-pro';
+      } else if (models.includes('gemini-pro')) {
+        geminiModelSelect.value = 'gemini-pro';
+      }
+    } else {
+      geminiModelSelect.innerHTML = '<option value="gemini-pro">Failed to load models (using default)</option>';
+    }
+  } catch (error) {
+    console.error('Failed to load Gemini models:', error);
+    geminiModelSelect.innerHTML = '<option value="gemini-pro">Error loading models (using default)</option>';
+  } finally {
+    geminiModelSelect.disabled = false;
+  }
+}
+
+// Handler for Refresh models button
+const refreshGeminiBtn = document.getElementById('refresh-gemini-models');
+if (refreshGeminiBtn) {
+    refreshGeminiBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        loadGeminiModels();
+    });
 }
 
 // Model card selection logic
@@ -1580,16 +1796,26 @@ async function loadSystemInfo() {
     if (response.success) {
       const info = response.data;
       systemInfoDiv.innerHTML = `
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div>
-                <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">RAM</div>
-                <div style="font-weight:600;">${info.total_ram_mb}MB Total</div>
-                <div style="font-size:0.875rem;">${info.available_ram_mb}MB Available</div>
+        <div class="system-stats-grid">
+            <div class="stat-item">
+                <span class="stat-label">RAM Usage</span>
+                <span class="stat-value">${info.total_ram_mb} MB Total</span>
+                <span class="stat-sub">${info.available_ram_mb} MB Available</span>
             </div>
-            <div>
-                <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Processor</div>
-                <div style="font-weight:600;">${info.cpu_cores} Active Cores</div>
-                <div style="font-size:0.875rem;">Mode: ${info.current_mode || 'Standard'}</div>
+            <div class="stat-item">
+                <span class="stat-label">CPU Cores</span>
+                <span class="stat-value">${info.cpu_cores} Cores</span>
+                <span class="stat-sub">Active System</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Current Mode</span>
+                <span class="stat-value">${info.current_mode || 'Auto'}</span>
+                <span class="stat-sub">Optimization</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Storage</span>
+                <span class="stat-value">Active</span>
+                <span class="stat-sub">Index Ready</span>
             </div>
         </div>
       `;
@@ -1609,7 +1835,7 @@ async function loadLibrariesTable() {
       const dirs = response.data.indexed_directories;
       
       if (dirs.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 3rem;">No folders indexed yet. Add a folder to enable semantic search.</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="4" class="table-empty">No folders indexed yet. Add a folder to enable semantic search.</td></tr>';
       } else {
         const filesResponse = await window.electronAPI.apiRequest('GET', '/api/files');
         const fileCounts = {};
@@ -1703,6 +1929,7 @@ if (saveSettingsBtn) {
         const aiEnabled = aiEnabledCheckbox ? aiEnabledCheckbox.checked : false;
         const aiProvider = aiProviderSelect ? aiProviderSelect.value : 'ollama';
         const ollamaModel = document.getElementById('ollama-model-input')?.value || null;
+        const geminiModel = document.getElementById('gemini-model-select')?.value || null;
         const apiKey = document.getElementById('api-key-input')?.value || null;
         
         // Disable save button and show loading state
@@ -1719,6 +1946,7 @@ if (saveSettingsBtn) {
             ai_features_enabled: aiEnabled,
             ai_provider: aiProvider,
             has_ollama_model: !!ollamaModel,
+            gemini_model: geminiModel,
             has_api_key: !!apiKey
         });
         
@@ -1732,6 +1960,10 @@ if (saveSettingsBtn) {
             
             if (ollamaModel) {
                 requestData.ollama_model = ollamaModel;
+            }
+
+            if (geminiModel) {
+                requestData.gemini_model = geminiModel;
             }
             
             if (apiKey) {
