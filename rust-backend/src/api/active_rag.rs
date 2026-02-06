@@ -20,10 +20,13 @@ pub async fn active_rag_search(
     State(state): State<AppState>,
     Json(request): Json<ActiveRagApiRequest>,
 ) -> Result<Json<ActiveRagResponse>, axum::http::StatusCode> {
+    // Create a unique request ID to detect duplicates
+    let request_id = format!("{}_{}", request.query.trim(), request.user_question.trim());
     eprintln!("=== Active RAG Search Request ===");
-    eprintln!("Query: '{}'", request.query);
-    eprintln!("User Question: '{}'", request.user_question);
-    eprintln!("Document Limit: {:?}", request.document_limit);
+    eprintln!("[Active RAG] Request ID: {}", request_id);
+    eprintln!("[Active RAG] Query: '{}'", request.query);
+    eprintln!("[Active RAG] User Question: '{}'", request.user_question);
+    eprintln!("[Active RAG] Document Limit: {:?}", request.document_limit);
     
     // Validate inputs
     let query = request.query.trim();

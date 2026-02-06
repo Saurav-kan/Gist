@@ -3333,6 +3333,7 @@ if (treeViewShowBtn) {
 let actionSearchEnabled = false;
 let currentSearchResults = [];
 let currentActiveRagResponse = null;
+let isActiveRagSearching = false; // Guard to prevent duplicate requests
 
 // Action Search Toggle
 const actionSearchToggle = document.getElementById("action-search-toggle");
@@ -3429,6 +3430,16 @@ async function performActiveRagSearch(query, userQuestion) {
     return;
   }
 
+  // Prevent duplicate requests
+  if (isActiveRagSearching) {
+    console.log("[Active RAG] Search already in progress, skipping duplicate request");
+    showToast("AI analysis already in progress, please wait...", "info");
+    return;
+  }
+
+  isActiveRagSearching = true;
+  console.log("[Active RAG] Starting search - query:", query, "question:", userQuestion);
+
   try {
     showLoadingState();
 
@@ -3442,27 +3453,34 @@ async function performActiveRagSearch(query, userQuestion) {
       },
     );
 
+    console.log("[Active RAG] Response received:", response);
+
     if (response.success && response.data) {
       // Check backend-level success
       const activeRagData = response.data;
       if (activeRagData.success) {
+        console.log("[Active RAG] Analysis successful, displaying results");
         currentActiveRagResponse = activeRagData;
         displayActiveRagResponse(activeRagData);
         displayDocumentTabs(activeRagData.sources);
       } else {
+        console.error("[Active RAG] Analysis failed:", activeRagData.error);
         showToast(activeRagData.error || "AI analysis failed", "error");
         hideActiveRagComponents();
       }
     } else {
+      console.error("[Active RAG] Request failed:", response);
       showToast(response.error || "Active RAG search failed", "error");
       hideActiveRagComponents();
     }
   } catch (error) {
-    console.error("Active RAG search error:", error);
-    showToast("Failed to perform AI analysis", "error");
+    console.error("[Active RAG] Search error:", error);
+    showToast("Failed to perform AI analysis: " + error.message, "error");
     hideActiveRagComponents();
   } finally {
+    isActiveRagSearching = false;
     hideLoadingState();
+    console.log("[Active RAG] Search completed, guard released");
   }
 }
 
@@ -3474,22 +3492,50 @@ function hideActiveRagComponents() {
 }
 
 function displayActiveRagResponse(response) {
+  console.log("[Active RAG] displayActiveRagResponse called with:", response);
+  
   const responseContainer = document.getElementById("active-rag-response");
   const responseContent = document.getElementById("response-content");
   const responseConfidence = document.getElementById("response-confidence");
   const sourcesList = document.getElementById("sources-list");
 
-  if (!responseContainer || !responseContent || !responseConfidence) return;
+  if (!responseContainer) {
+    console.error("[Active RAG] responseContainer not found!");
+    return;
+  }
+  
+  if (!responseContent) {
+    console.error("[Active RAG] responseContent element not found!");
+    return;
+  }
+  
+  if (!responseConfidence) {
+    console.error("[Active RAG] responseConfidence element not found!");
+    return;
+  }
 
+  console.log("[Active RAG] All elements found, displaying response");
   responseContainer.style.display = "block";
+
+  // Hide loading state if still visible
+  const loadingState = responseContainer.querySelector(".loading-state");
+  if (loadingState) {
+    loadingState.style.display = "none";
+  }
 
   // Display AI answer
   if (response.answer) {
+    console.log("[Active RAG] Setting answer content, length:", response.answer.length);
     responseContent.innerHTML = `
             <div class="ai-answer">
                 ${formatAnswerWithHighlights(response.answer)}
             </div>
         `;
+    responseContent.style.display = "block";
+  } else {
+    console.warn("[Active RAG] No answer in response!");
+    responseContent.innerHTML = `<div class="ai-answer">No answer provided.</div>`;
+    responseContent.style.display = "block";
   }
 
   // Display confidence
@@ -3497,23 +3543,46 @@ function displayActiveRagResponse(response) {
     responseConfidence.textContent = `${Math.round(response.confidence * 100)}% Confidence`;
     responseConfidence.style.display =
       response.confidence > 0.7 ? "block" : "none";
+  } else {
+    responseConfidence.style.display = "none";
   }
 
   // Display sources
   if (sourcesList && response.sources && response.sources.length > 0) {
-    sourcesList.innerHTML = response.sources
-      .filter((source) => source.used_in_answer)
-      .map(
-        (source) => `
+    const usedSources = response.sources.filter((source) => source.used_in_answer);
+    console.log("[Active RAG] Displaying", usedSources.length, "used sources");
+    if (usedSources.length > 0) {
+      sourcesList.innerHTML = usedSources
+        .map(
+          (source) => `
                 <div class="source-item">
-                    <div class="source-name">${source.file_name}</div>
+                    <div class="source-name">${escapeHtml(source.file_name)}</div>
                     <div class="source-score">Relevance: ${Math.round(source.relevance_score * 100)}%</div>
-                    <a href="#" class="source-link" onclick="openFile('${source.file_path}')">Open File</a>
+                    <a href="#" class="source-link" onclick="openFile('${escapeHtml(source.file_path)}'); return false;">Open File</a>
                 </div>
             `,
-      )
-      .join("");
+        )
+        .join("");
+      sourcesList.style.display = "block";
+    } else {
+      sourcesList.innerHTML = "";
+      sourcesList.style.display = "none";
+    }
+  } else {
+    if (sourcesList) {
+      sourcesList.innerHTML = "";
+      sourcesList.style.display = "none";
+    }
   }
+  
+  console.log("[Active RAG] Response displayed successfully");
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function displayDocumentTabs(sources) {
@@ -3643,30 +3712,47 @@ function formatAnswerWithHighlights(answer) {
 function showLoadingState() {
   const responseContainer = document.getElementById("active-rag-response");
   if (responseContainer) {
-    responseContainer.innerHTML = `
-            <div class="loading-state">
+    // Don't replace the entire innerHTML - just show/hide loading overlay
+    // Check if loading state already exists
+    let loadingState = responseContainer.querySelector(".loading-state");
+    if (!loadingState) {
+      loadingState = document.createElement("div");
+      loadingState.className = "loading-state";
+      loadingState.innerHTML = `
                 <div class="loading-spinner"></div>
                 <div>Analyzing documents with AI...</div>
-            </div>
-        `;
+            `;
+      responseContainer.appendChild(loadingState);
+    }
+    loadingState.style.display = "block";
     responseContainer.style.display = "block";
+    
+    // Hide the content elements while loading
+    const responseContent = document.getElementById("response-content");
+    const responseConfidence = document.getElementById("response-confidence");
+    const sourcesList = document.getElementById("sources-list");
+    if (responseContent) responseContent.style.display = "none";
+    if (responseConfidence) responseConfidence.style.display = "none";
+    if (sourcesList) sourcesList.style.display = "none";
   }
 }
 
 function hideLoadingState() {
   const responseContainer = document.getElementById("active-rag-response");
   if (responseContainer) {
-    // If we only have the loading state, hide the container
-    const isLoading = responseContainer.querySelector(".loading-state");
-    if (isLoading) {
-      // Small delay to prevent flickering if content is about to be displayed
-      setTimeout(() => {
-        if (responseContainer.querySelector(".loading-state")) {
-          responseContainer.style.display = "none";
-          responseContainer.innerHTML = "";
-        }
-      }, 100);
+    // Hide the loading state overlay
+    const loadingState = responseContainer.querySelector(".loading-state");
+    if (loadingState) {
+      loadingState.style.display = "none";
     }
+    
+    // Show the content elements again
+    const responseContent = document.getElementById("response-content");
+    const responseConfidence = document.getElementById("response-confidence");
+    const sourcesList = document.getElementById("sources-list");
+    if (responseContent) responseContent.style.display = "block";
+    if (responseConfidence) responseConfidence.style.display = "block";
+    if (sourcesList) sourcesList.style.display = "block";
   }
 }
 

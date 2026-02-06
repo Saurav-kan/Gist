@@ -488,12 +488,20 @@ impl Indexer {
             "dat", "mca", "rrf", "igt", "class"
         ];
         
-        // Log file extensions
-        let log_extensions = ["log"];
-        
-        config_extensions.contains(&ext.as_str()) ||
-        binary_extensions.contains(&ext.as_str()) ||
-        log_extensions.contains(&ext.as_str())
+    // Log file extensions
+    let log_extensions = ["log"];
+    
+    // Image extensions - index by filename only, not content
+    // This prevents random images from appearing in semantic search results
+    let image_extensions = [
+        "jpg", "jpeg", "png", "gif", "bmp", "webp", 
+        "svg", "ico", "tiff", "tif"
+    ];
+    
+    config_extensions.contains(&ext.as_str()) ||
+    binary_extensions.contains(&ext.as_str()) ||
+    log_extensions.contains(&ext.as_str()) ||
+    image_extensions.contains(&ext.as_str())
     }
 
     /// Index a file with metadata only (filename only, no content)
