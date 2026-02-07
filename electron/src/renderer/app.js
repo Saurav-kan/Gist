@@ -376,7 +376,7 @@ function removeFromSearchHistory(query) {
   }
 }
 
-// Show search history dropdown
+// Show search history dropdown (portal to body for overflow visibility)
 function showSearchHistory() {
   if (!searchInput || searchHistory.length === 0) return;
 
@@ -386,15 +386,16 @@ function showSearchHistory() {
     dropdown = document.createElement("div");
     dropdown.id = "search-history-dropdown";
     dropdown.className = "search-history-dropdown";
-    // Append to the search input wrapper (parent element)
-    const wrapper =
-      searchInput.closest(".main-search-input-wrapper") ||
-      searchInput.parentElement;
-    if (wrapper) {
-      wrapper.style.position = "relative";
-      wrapper.appendChild(dropdown);
-    }
+    document.body.appendChild(dropdown);
   }
+
+  // Position below search input using getBoundingClientRect (escapes overflow:hidden ancestors)
+  const rect = searchInput.getBoundingClientRect();
+  dropdown.style.position = "fixed";
+  dropdown.style.left = `${rect.left}px`;
+  dropdown.style.top = `${rect.bottom + 4}px`;
+  dropdown.style.width = `${rect.width}px`;
+  dropdown.style.minWidth = `${rect.width}px`;
 
   dropdown.innerHTML = searchHistory
     .map(
@@ -1226,35 +1227,9 @@ function initializeAiFeatures(filePath) {
   currentAiFilePath = filePath;
   chatHistory = [];
 
-  // Reset tabs to Overview
-  document
-    .querySelectorAll(".ai-tab")
-    .forEach((t) => t.classList.remove("active"));
-  document
-    .querySelectorAll(".ai-pane")
-    .forEach((p) => p.classList.remove("active"));
-
-  const overviewTab = document.querySelector('.ai-tab[data-tab="overview"]');
-  const overviewPane = document.getElementById("ai-pane-overview");
-  if (overviewTab) overviewTab.classList.add("active");
-  if (overviewPane) overviewPane.classList.add("active");
-
-  // Clear previous results
-  const summarizeResult = document.getElementById("ai-summarize-result");
-  const summarizeEmpty = document.getElementById("ai-summarize-empty");
+  // Clear previous chat results
   const chatMessages = document.getElementById("ai-chat-messages");
-
-  if (summarizeResult) {
-    summarizeResult.style.display = "none";
-    summarizeResult.textContent = "";
-  }
-
-  if (summarizeEmpty) {
-    summarizeEmpty.style.display = "flex";
-  }
-
   if (chatMessages) {
-    // Keep the welcome message
     chatMessages.innerHTML = `
       <div class="ai-chat-welcome">
         <p>Ask anything about this document. The AI has access to the full text content.</p>
@@ -1262,34 +1237,25 @@ function initializeAiFeatures(filePath) {
     `;
   }
 
+  // Show summary suggestion when starting fresh
+  updateSummarySuggestionVisibility();
+
   // Set up event listeners
   setupAiEventListeners();
 }
 
+// Hide summary suggestion once chat has any real content (user or assistant messages)
+function updateSummarySuggestionVisibility() {
+  const summarySuggestion = document.getElementById("ai-summary-suggestion");
+  const chatMessages = document.getElementById("ai-chat-messages");
+  if (!summarySuggestion || !chatMessages) return;
+
+  const hasContent =
+    chatMessages.querySelectorAll(".ai-chat-message").length > 0;
+  summarySuggestion.style.display = hasContent ? "none" : "block";
+}
+
 function setupAiEventListeners() {
-  // Tab switching
-  document.querySelectorAll(".ai-tab").forEach((tab) => {
-    if (!tab.dataset.listenerAdded) {
-      tab.dataset.listenerAdded = "true";
-      tab.addEventListener("click", () => {
-        const target = tab.dataset.tab;
-
-        // Update tabs
-        document
-          .querySelectorAll(".ai-tab")
-          .forEach((t) => t.classList.remove("active"));
-        tab.classList.add("active");
-
-        // Update panes
-        document
-          .querySelectorAll(".ai-pane")
-          .forEach((p) => p.classList.remove("active"));
-        const targetPane = document.getElementById(`ai-pane-${target}`);
-        if (targetPane) targetPane.classList.add("active");
-      });
-    }
-  });
-
   // Toggle expand/collapse
   const toggleBtn = document.getElementById("ai-toggle-expand");
   const aiSection = document.getElementById("ai-section");
@@ -1304,12 +1270,15 @@ function setupAiEventListeners() {
     });
   }
 
-  // Summarize button
-  const summarizeBtn = document.getElementById("ai-summarize-btn");
-  if (summarizeBtn && !summarizeBtn.dataset.listenerAdded) {
-    summarizeBtn.dataset.listenerAdded = "true";
-    summarizeBtn.addEventListener("click", async () => {
-      await summarizeDocument();
+  // Summary suggestion - send "Summarize this document" on click
+  const summarySuggestion = document.getElementById("ai-summary-suggestion");
+  if (summarySuggestion && !summarySuggestion.dataset.listenerAdded) {
+    summarySuggestion.dataset.listenerAdded = "true";
+    summarySuggestion.addEventListener("click", async () => {
+      const suggestion = summarySuggestion.dataset.suggestion;
+      if (suggestion) {
+        await sendChatMessage(suggestion);
+      }
     });
   }
 
@@ -1334,67 +1303,8 @@ function setupAiEventListeners() {
   }
 }
 
-// Summarize document
-async function summarizeDocument() {
-  if (!currentAiFilePath) return;
-
-  const summarizeBtn = document.getElementById("ai-summarize-btn");
-  const summarizeResult = document.getElementById("ai-summarize-result");
-  const summarizeEmpty = document.getElementById("ai-summarize-empty");
-
-  if (!summarizeBtn || !summarizeResult) return;
-
-  const btnText = summarizeBtn.querySelector(".btn-text");
-  const loadingDots = summarizeBtn.querySelector(".ai-loading-dots");
-
-  // Show loading state
-  summarizeBtn.disabled = true;
-  if (btnText) btnText.textContent = "Summarizing";
-  if (loadingDots) loadingDots.style.display = "flex";
-  if (summarizeEmpty) summarizeEmpty.style.display = "none";
-
-  summarizeResult.style.display = "none";
-
-  try {
-    const response = await window.electronAPI.apiRequest(
-      "POST",
-      "/api/ai/summarize",
-      {
-        file_path: currentAiFilePath,
-      },
-    );
-
-    if (response.success && response.data) {
-      if (response.data.success && response.data.summary) {
-        summarizeResult.textContent = response.data.summary;
-        summarizeResult.style.display = "block";
-      } else {
-        summarizeResult.textContent =
-          "Failed to generate summary: " +
-          (response.data.error || "Unknown error");
-        summarizeResult.style.color = "#ef4444";
-        summarizeResult.style.display = "block";
-      }
-    } else {
-      summarizeResult.textContent =
-        "Failed to generate summary: " + (response.error || "Unknown error");
-      summarizeResult.style.color = "#ef4444";
-      summarizeResult.style.display = "block";
-    }
-  } catch (error) {
-    console.error("Summarize error:", error);
-    summarizeResult.textContent = "Error: " + error.message;
-    summarizeResult.style.color = "#ef4444";
-    summarizeResult.style.display = "block";
-  } finally {
-    summarizeBtn.disabled = false;
-    if (btnText) btnText.textContent = "Summarize Document";
-    if (loadingDots) loadingDots.style.display = "none";
-  }
-}
-
-// Send chat message
-async function sendChatMessage() {
+// Send chat message (optional messageOverride: use when sending from suggestion chip)
+async function sendChatMessage(messageOverride) {
   if (!currentAiFilePath) return;
 
   const chatInput = document.getElementById("ai-chat-input");
@@ -1403,7 +1313,9 @@ async function sendChatMessage() {
 
   if (!chatInput || !chatSendBtn || !chatMessages) return;
 
-  const message = chatInput.value.trim();
+  const message = typeof messageOverride === "string"
+    ? messageOverride.trim()
+    : chatInput.value.trim();
   if (!message) return;
 
   // Add user message to UI
@@ -1483,7 +1395,7 @@ async function sendChatMessage() {
   }
 }
 
-// Add chat message to UI
+// Add chat message to UI (uses formatAnswerWithHighlights for assistant messages)
 function addChatMessage(role, content, messageId = null, isError = false) {
   const chatMessages = document.getElementById("ai-chat-messages");
   if (!chatMessages) return;
@@ -1493,8 +1405,15 @@ function addChatMessage(role, content, messageId = null, isError = false) {
   if (messageId) messageDiv.id = messageId;
   if (isError) messageDiv.style.color = "#ef4444";
 
-  messageDiv.textContent = content;
+  if (role === "assistant" && !isError && content) {
+    messageDiv.innerHTML = formatAnswerWithHighlights(content);
+  } else {
+    messageDiv.textContent = content;
+  }
   chatMessages.appendChild(messageDiv);
+
+  // Hide summary suggestion once chat has content
+  updateSummarySuggestionVisibility();
 
   // Scroll to bottom
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1819,6 +1738,17 @@ async function loadSettings() {
         const valueDisplay = document.getElementById("max-results-value");
         if (slider) slider.value = maxSearchResults;
         if (valueDisplay) valueDisplay.textContent = maxSearchResults;
+      }
+
+      // Load filter duplicate files
+      const filterDuplicateCheckbox = document.getElementById(
+        "filter-duplicate-files",
+      );
+      if (
+        filterDuplicateCheckbox &&
+        settings.filter_duplicate_files !== undefined
+      ) {
+        filterDuplicateCheckbox.checked = settings.filter_duplicate_files;
       }
 
       // Load AI settings
@@ -2206,6 +2136,14 @@ if (saveSettingsBtn) {
       ? analysisModelSelectEl.value
       : "same-as-main";
 
+    // Get filter duplicate files
+    const filterDuplicateCheckbox = document.getElementById(
+      "filter-duplicate-files",
+    );
+    const filterDuplicateFiles = filterDuplicateCheckbox
+      ? filterDuplicateCheckbox.checked
+      : true;
+
     // Get excluded extensions
     const excludedInput = document.getElementById("excluded-extensions-input");
     const excludedExtensions = excludedInput
@@ -2240,6 +2178,7 @@ if (saveSettingsBtn) {
       const requestData = {
         performance_mode: selectedMode,
         max_search_results: maxResults,
+        filter_duplicate_files: filterDuplicateFiles,
         ai_features_enabled: aiEnabled,
         ai_provider: aiProvider,
       };
@@ -3341,23 +3280,26 @@ if (actionSearchToggle) {
   actionSearchToggle.addEventListener("change", async (e) => {
     const isChecked = e.target.checked;
 
-    // If turning ON and warning hasn't been shown (or we want a confirmation anyway)
+    // If turning ON, show warning only the first time
     if (isChecked) {
-      const confirmed = await showConfirmDialog(
-        "Enable Action Search?",
-        "Action Search uses AI to analyze your files. This process contributes to API credit usage and performs deep analysis of the documents found. Continue?",
-        "Enable AI Search",
-        "Cancel",
-      );
+      const warningAlreadyShown = localStorage.getItem("activeRagWarningShown") === "true";
+      if (!warningAlreadyShown) {
+        const confirmed = await showConfirmDialog(
+          "Enable Action Search?",
+          "Action Search uses AI to analyze your files. This process contributes to API credit usage and performs deep analysis of the documents found. Continue?",
+          "Enable AI Search",
+          "Cancel",
+        );
 
-      if (!confirmed) {
-        e.target.checked = false;
-        actionSearchEnabled = false;
-        saveActionSearchState();
-        return;
+        if (!confirmed) {
+          e.target.checked = false;
+          actionSearchEnabled = false;
+          saveActionSearchState();
+          return;
+        }
+
+        localStorage.setItem("activeRagWarningShown", "true");
       }
-
-      localStorage.setItem("activeRagWarningShown", "true");
     }
 
     actionSearchEnabled = e.target.checked;
@@ -3461,8 +3403,26 @@ async function performActiveRagSearch(query, userQuestion) {
       if (activeRagData.success) {
         console.log("[Active RAG] Analysis successful, displaying results");
         currentActiveRagResponse = activeRagData;
+        
+        // Display the AI answer
         displayActiveRagResponse(activeRagData);
-        displayDocumentTabs(activeRagData.sources);
+        
+        // Convert sources to search results format and display in normal results area
+        if (activeRagData.sources && activeRagData.sources.length > 0) {
+          const vectorResults = activeRagData.sources.map(source => ({
+            file_path: source.file_path,
+            file_name: source.file_name,
+            similarity: source.relevance_score,
+            preview: source.excerpt || null
+          }));
+          
+          // Store and display vector search results
+          lastSearchResults = vectorResults;
+          if (resultsCount) {
+            resultsCount.textContent = `Found ${vectorResults.length} relevant documents`;
+          }
+          displayResults(vectorResults);
+        }
       } else {
         console.error("[Active RAG] Analysis failed:", activeRagData.error);
         showToast(activeRagData.error || "AI analysis failed", "error");
@@ -3487,7 +3447,12 @@ async function performActiveRagSearch(query, userQuestion) {
 function hideActiveRagComponents() {
   const responseContainer = document.getElementById("active-rag-response");
   const tabsContainer = document.getElementById("document-tabs");
-  if (responseContainer) responseContainer.style.display = "none";
+  if (responseContainer) {
+    responseContainer.style.display = "none";
+    // Also hide integrated tabs within the container
+    const integratedTabs = responseContainer.querySelector(".document-tabs-integrated");
+    if (integratedTabs) integratedTabs.style.display = "none";
+  }
   if (tabsContainer) tabsContainer.style.display = "none";
 }
 
@@ -3547,7 +3512,7 @@ function displayActiveRagResponse(response) {
     responseConfidence.style.display = "none";
   }
 
-  // Display sources
+  // Display sources (compact, as chips)
   if (sourcesList && response.sources && response.sources.length > 0) {
     const usedSources = response.sources.filter((source) => source.used_in_answer);
     console.log("[Active RAG] Displaying", usedSources.length, "used sources");
@@ -3555,15 +3520,14 @@ function displayActiveRagResponse(response) {
       sourcesList.innerHTML = usedSources
         .map(
           (source) => `
-                <div class="source-item">
-                    <div class="source-name">${escapeHtml(source.file_name)}</div>
-                    <div class="source-score">Relevance: ${Math.round(source.relevance_score * 100)}%</div>
-                    <a href="#" class="source-link" onclick="openFile('${escapeHtml(source.file_path)}'); return false;">Open File</a>
+                <div class="source-chip">
+                    <span class="source-chip-name">${escapeHtml(source.file_name)}</span>
+                    <span class="source-chip-score">${Math.round(source.relevance_score * 100)}%</span>
                 </div>
             `,
         )
         .join("");
-      sourcesList.style.display = "block";
+      sourcesList.style.display = "flex";
     } else {
       sourcesList.innerHTML = "";
       sourcesList.style.display = "none";
@@ -3575,7 +3539,73 @@ function displayActiveRagResponse(response) {
     }
   }
   
+  // Display document tabs inline if multiple sources
+  const documentTabs = document.getElementById("document-tabs");
+  if (documentTabs && response.sources && response.sources.length > 1) {
+    displayDocumentTabsInline(response.sources, documentTabs);
+  } else if (documentTabs) {
+    documentTabs.style.display = "none";
+  }
+  
   console.log("[Active RAG] Response displayed successfully");
+}
+
+function displayDocumentTabsInline(sources, tabsContainer) {
+  const tabsNavigation = document.getElementById("tabs-navigation");
+  const tabsContent = document.getElementById("tabs-content");
+  
+  if (!tabsNavigation || !tabsContent) return;
+  
+  tabsContainer.style.display = "block";
+  
+  // Create tab buttons
+  tabsNavigation.innerHTML = sources
+    .map((source, index) => `
+      <button class="tab-button-integrated ${index === 0 ? 'active' : ''}" 
+              data-tab-index="${index}"
+              onclick="switchDocumentTab(${index})">
+        ${escapeHtml(source.file_name)}
+      </button>
+    `)
+    .join("");
+  
+  // Display first document by default
+  if (sources.length > 0) {
+    switchDocumentTab(0);
+  }
+  
+  // Store sources for tab switching
+  window.activeRagSources = sources;
+}
+
+function switchDocumentTab(index) {
+  const sources = window.activeRagSources || [];
+  const tabsContent = document.getElementById("tabs-content");
+  const tabButtons = document.querySelectorAll(".tab-button-integrated");
+  
+  if (!tabsContent || index >= sources.length) return;
+  
+  // Update active tab button
+  tabButtons.forEach((btn, i) => {
+    if (i === index) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+  
+  // Display selected document
+  const source = sources[index];
+  tabsContent.innerHTML = `
+    <div class="tab-document-card">
+      <div class="tab-document-header">
+        <div class="tab-document-name">${escapeHtml(source.file_name)}</div>
+        <div class="tab-document-score">Relevance: ${Math.round(source.relevance_score * 100)}%</div>
+      </div>
+      ${source.excerpt ? `<div class="tab-document-excerpt">${escapeHtml(source.excerpt)}</div>` : ''}
+      <a href="#" class="tab-document-link" onclick="openFile('${escapeHtml(source.file_path)}'); return false;">Open Full Document</a>
+    </div>
+  `;
 }
 
 // Helper function to escape HTML
@@ -3697,16 +3727,69 @@ function updateActiveRagVisibility() {
 }
 
 function formatAnswerWithHighlights(answer) {
+  let formatted = answer;
+  
+  // Remove common chatty phrases at the start
+  formatted = formatted.replace(/^(I can provide|Here's|Let me|I'll|I will|I can|I would|I might)/gi, '');
+  formatted = formatted.replace(/^(you with|you a|you the|you some)/gi, '');
+  formatted = formatted.trim();
+  
+  // Format problem statements (Problem:, Question:, Given:, etc.)
+  formatted = formatted.replace(/^(Problem|Question|Given|Find|Determine|Solve|Calculate):\s*/gmi, '<div class="problem-statement"><strong>$1:</strong></div>');
+  
+  // Format numbered lists (1. item, 2. item, etc.)
+  formatted = formatted.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="numbered-list-item"><span class="list-number">$1.</span> <span class="list-content">$2</span></div>');
+  
+  // Format multiple choice patterns (1. option 2. option 3. option)
+  formatted = formatted.replace(/(\d+)\.\s+([^\d]+?)(?=\s+\d+\.|$)/g, '<div class="multiple-choice-option"><span class="choice-number">$1.</span> <span class="choice-text">$2</span></div>');
+  
+  // Format vectors [a, b, c] or [x, y]
+  formatted = formatted.replace(/\[([^\]]+)\]/g, (match, content) => {
+    // Check if it looks like a vector/matrix (contains numbers, commas, possibly spaces)
+    if (/[\d\s,]+/.test(content)) {
+      return `<span class="math-vector">[${content}]</span>`;
+    }
+    return match;
+  });
+  
+  // Format equations (lines containing = with math-like content)
+  formatted = formatted.replace(/^([^=\n]+=\s*[^\n]+)$/gm, (match) => {
+    // Only format if it looks like an equation (has numbers, variables, operators)
+    if (/[a-zA-Z]\s*=\s*[\d\w\s\+\-\*\/\(\)]+/.test(match)) {
+      return `<div class="math-equation">${match}</div>`;
+    }
+    return match;
+  });
+  
+  // Format inline code-like patterns (backticks or monospace patterns)
+  formatted = formatted.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+  
+  // Format bold patterns (**text** or *text*)
+  formatted = formatted.replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>');
+  formatted = formatted.replace(/\*([^\*]+)\*/g, '<em>$1</em>');
+  
   // Basic highlighting for key terms
-  return answer
-    .replace(
-      /\b(important|key|main|primary|significant)\b/gi,
-      "<strong>$1</strong>",
-    )
-    .replace(
-      /\b(\d+[%]|$|USD|\$[\d,]+\))/g,
-      '<span class="highlight-number">$1</span>',
-    );
+  formatted = formatted.replace(
+    /\b(important|key|main|primary|significant)\b/gi,
+    "<strong>$1</strong>",
+  );
+  
+  // Format numbers and percentages
+  formatted = formatted.replace(
+    /\b(\d+[%]|USD|\$[\d,]+)/g,
+    '<span class="highlight-number">$1</span>',
+  );
+  
+  // Preserve line breaks
+  formatted = formatted.replace(/\n\n/g, '</p><p>');
+  formatted = formatted.replace(/\n/g, '<br>');
+  
+  // Wrap in paragraph if not already wrapped
+  if (!formatted.startsWith('<div') && !formatted.startsWith('<p')) {
+    formatted = `<p>${formatted}</p>`;
+  }
+  
+  return formatted;
 }
 
 function showLoadingState() {
@@ -3756,12 +3839,10 @@ function hideLoadingState() {
   }
 }
 
-// Initialize Action Search state from localStorage
-if (localStorage.getItem("actionSearchEnabled")) {
-  actionSearchEnabled = localStorage.getItem("actionSearchEnabled") === "true";
-  if (actionSearchToggle) {
-    actionSearchToggle.checked = actionSearchEnabled;
-  }
+// Initialize Action Search state - off by default, do not restore from localStorage
+actionSearchEnabled = false;
+if (actionSearchToggle) {
+  actionSearchToggle.checked = false;
 }
 
 // Save Action Search state to localStorage

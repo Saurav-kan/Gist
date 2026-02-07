@@ -15,6 +15,8 @@ pub struct AppConfig {
     pub auto_index: bool,
     #[serde(default = "default_max_search_results")]
     pub max_search_results: usize,
+    #[serde(default = "default_filter_duplicate_files")]
+    pub filter_duplicate_files: bool,
     #[serde(default = "default_ai_features_enabled")]
     pub ai_features_enabled: bool,
     #[serde(default = "default_ai_provider")]
@@ -50,6 +52,10 @@ fn default_ai_provider() -> AiProvider {
 
 fn default_max_search_results() -> usize {
     100
+}
+
+fn default_filter_duplicate_files() -> bool {
+    true
 }
 
 fn default_action_search_parsing_model() -> String {
@@ -98,6 +104,7 @@ impl Default for AppConfig {
             max_context_tokens: 1500,
             auto_index: true,
             max_search_results: 100,
+            filter_duplicate_files: true,
             ai_features_enabled: false,
             ai_provider: AiProvider::Ollama,
             ollama_model: None,

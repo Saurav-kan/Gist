@@ -180,4 +180,107 @@ impl HnswIndex {
     pub fn len(&self) -> usize {
         self.embeddings.len()
     }
+
+    /// Get the embedding for a given metadata (for deduplication). Returns None if not found.
+    pub fn get_embedding_for_metadata(&self, metadata: &FileMetadata) -> Option<Vec<f32>> {
+        self.id_to_index
+            .get(&metadata.id)
+            .and_then(|&idx| self.embeddings.get(idx))
+            .cloned()
+    }
+
+    /// Get statistics about the index
+    pub fn get_stats(&self) -> HnswIndexStats {
+        HnswIndexStats {
+            item_count: self.embeddings.len(),
+            dimensions: self.dimensions,
+            metadata_count: self.metadata_list.len(),
+            id_mapping_count: self.id_to_index.len(),
+            is_ready: !self.embeddings.is_empty() && 
+                     self.embeddings.len() == self.metadata_list.len() &&
+                     self.embeddings.len() == self.id_to_index.len(),
+        }
+    }
+
+    /// Verify the integrity of the index
+    pub fn verify_index(&self) -> HnswIndexVerification {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        // Check if index is empty
+        if self.embeddings.is_empty() {
+            warnings.push("Index is empty".to_string());
+            return HnswIndexVerification {
+                is_valid: true, // Empty is valid
+                errors,
+                warnings,
+            };
+        }
+
+        // Check dimension consistency
+        for (idx, emb) in self.embeddings.iter().enumerate() {
+            if emb.len() != self.dimensions {
+                errors.push(format!("Embedding at index {} has wrong dimension: expected {}, got {}", 
+                                  idx, self.dimensions, emb.len()));
+            }
+        }
+
+        // Check that embeddings and metadata counts match
+        if self.embeddings.len() != self.metadata_list.len() {
+            errors.push(format!("Embedding count ({}) doesn't match metadata count ({})", 
+                             self.embeddings.len(), self.metadata_list.len()));
+        }
+
+        // Check that id_to_index mapping is consistent
+        if self.id_to_index.len() != self.metadata_list.len() {
+            errors.push(format!("ID mapping count ({}) doesn't match metadata count ({})", 
+                             self.id_to_index.len(), self.metadata_list.len()));
+        }
+
+        // Verify all IDs in mapping point to valid indices
+        for (id, &index) in &self.id_to_index {
+            if index >= self.metadata_list.len() {
+                errors.push(format!("ID {} maps to invalid index {}", id, index));
+            } else if let Some(meta) = self.metadata_list.get(index) {
+                if meta.id != *id {
+                    errors.push(format!("ID mapping mismatch: ID {} maps to index {} but metadata has ID {}", 
+                                     id, index, meta.id));
+                }
+            }
+        }
+
+        // Verify all metadata has corresponding embeddings
+        for (idx, meta) in self.metadata_list.iter().enumerate() {
+            if idx >= self.embeddings.len() {
+                errors.push(format!("Metadata at index {} has no corresponding embedding", idx));
+            }
+            if !self.id_to_index.contains_key(&meta.id) {
+                warnings.push(format!("Metadata ID {} at index {} is not in id_to_index mapping", 
+                                    meta.id, idx));
+            }
+        }
+
+        let is_valid = errors.is_empty();
+        HnswIndexVerification {
+            is_valid,
+            errors,
+            warnings,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HnswIndexStats {
+    pub item_count: usize,
+    pub dimensions: usize,
+    pub metadata_count: usize,
+    pub id_mapping_count: usize,
+    pub is_ready: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct HnswIndexVerification {
+    pub is_valid: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
 }

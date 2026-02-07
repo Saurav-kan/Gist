@@ -265,6 +265,17 @@ npm run dev                  # Run with DevTools
 npm run build                # Build distributable
 ```
 
+### Benchmarking
+
+To measure indexing and search performance:
+
+```bash
+cd rust-backend
+cargo run --release --bin benchmark -- --directory <path>
+```
+
+See [BENCHMARK.md](BENCHMARK.md) for full documentation, arguments, and output interpretation.
+
 ### API Endpoints
 
 The backend exposes a REST API at `http://localhost:8080`:

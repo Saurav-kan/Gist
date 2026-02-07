@@ -16,6 +16,7 @@ pub struct SettingsResponse {
     max_context_tokens: usize,
     auto_index: bool,
     max_search_results: usize,
+    filter_duplicate_files: bool,
     ai_features_enabled: bool,
     ai_provider: String,
     ollama_model: Option<String>,
@@ -42,6 +43,7 @@ pub struct UpdateSettingsRequest {
     max_context_tokens: Option<usize>,
     auto_index: Option<bool>,
     max_search_results: Option<usize>,
+    filter_duplicate_files: Option<bool>,
     ai_features_enabled: Option<bool>,
     ai_provider: Option<String>,
     ollama_model: Option<String>,
@@ -84,6 +86,7 @@ pub async fn get_settings(State(state): State<AppState>) -> Json<SettingsRespons
         max_context_tokens: config.max_context_tokens,
         auto_index: config.auto_index,
         max_search_results: config.max_search_results,
+        filter_duplicate_files: config.filter_duplicate_files,
         ai_features_enabled: {
             eprintln!("[SETTINGS] get_settings returning ai_features_enabled = {}", config.ai_features_enabled);
             config.ai_features_enabled
@@ -199,6 +202,10 @@ pub async fn update_settings(
     if let Some(val) = request.max_search_results {
         // Clamp between 10 and 200
         config.max_search_results = val.max(10).min(200);
+    }
+
+    if let Some(val) = request.filter_duplicate_files {
+        config.filter_duplicate_files = val;
     }
 
     // Always update ai_features_enabled if provided in request

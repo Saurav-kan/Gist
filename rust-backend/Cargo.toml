@@ -32,7 +32,12 @@ rand = "0.8"
 chrono = "0.4"
 regex = "1.10"
 base64 = "0.21"
+clap = { version = "4.4", features = ["derive"] }
 
 [profile.release]
 opt-level = 3
 lto = true
+
+[[bin]]
+name = "benchmark"
+path = "src/bin/benchmark.rs"

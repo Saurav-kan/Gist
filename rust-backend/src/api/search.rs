@@ -3,6 +3,7 @@ use axum::{
     response::Json,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::AppState;
 use crate::search::{cosine_similarity, filename_similarity, hybrid_similarity};
@@ -137,9 +138,32 @@ pub async fn search_files(
     if let Some(ref hnsw) = *hnsw_guard {
         // Use HNSW search (or optimized in-memory search)
         if hnsw.len() > 0 {
+            let stats = hnsw.get_stats();
+            eprintln!("[SEARCH] HNSW index available: {} items, {} dimensions, ready={}", 
+                     stats.item_count, stats.dimensions, stats.is_ready);
+            
+            // Verify index integrity (only log, don't fail)
+            let verification = hnsw.verify_index();
+            if !verification.is_valid {
+                eprintln!("[SEARCH] WARNING: HNSW index verification failed with {} errors", 
+                         verification.errors.len());
+                for error in &verification.errors {
+                    eprintln!("[SEARCH]   Error: {}", error);
+                }
+            }
+            if !verification.warnings.is_empty() {
+                eprintln!("[SEARCH] HNSW index has {} warnings", verification.warnings.len());
+                for warning in &verification.warnings {
+                    eprintln!("[SEARCH]   Warning: {}", warning);
+                }
+            }
+            
+            let search_start = std::time::Instant::now();
             eprintln!("[SEARCH] Using HNSW index with {} items", hnsw.len());
             if let Ok(hnsw_results) = hnsw.search(query_embedding.clone(), limit * 2) {
-                eprintln!("[SEARCH] HNSW returned {} results", hnsw_results.len());
+                let search_duration = search_start.elapsed();
+                eprintln!("[SEARCH] HNSW search completed in {:.2}ms, returned {} results", 
+                         search_duration.as_secs_f64() * 1000.0, hnsw_results.len());
                 // Apply hybrid search (vector + filename) to HNSW results
                 results = hnsw_results.into_iter().map(|(meta, vector_sim)| {
                     // Calculate filename similarity
@@ -204,21 +228,23 @@ pub async fn search_files(
                 eprintln!("[SEARCH] HNSW search failed, falling back to linear search");
             }
         } else {
-            eprintln!("[SEARCH] HNSW index is empty, falling back to linear search");
+            eprintln!("[SEARCH] HNSW index is empty (0 items), falling back to linear search");
         }
     } else {
-        eprintln!("[SEARCH] No HNSW index available, using linear search");
+        eprintln!("[SEARCH] No HNSW index available (None), using linear search");
     }
     drop(hnsw_guard);
     
     // If HNSW didn't return results, use linear search
     if results.is_empty() {
+        eprintln!("[SEARCH] HNSW returned no results, falling back to linear search");
+        let linear_search_start = std::time::Instant::now();
         let files_with_embeddings = match state.storage.get_all_embeddings().await {
             Ok(embeddings) => {
                 if embeddings.is_empty() {
-                    eprintln!("Warning: No embeddings found in storage");
+                    eprintln!("[SEARCH] Warning: No embeddings found in storage");
                 } else {
-                    eprintln!("Found {} files with embeddings for search", embeddings.len());
+                    eprintln!("[SEARCH] Linear search: Found {} files with embeddings", embeddings.len());
                 }
                 embeddings
             }
@@ -319,6 +345,9 @@ pub async fn search_files(
         }
         
         results = all_results;
+        let linear_search_duration = linear_search_start.elapsed();
+        eprintln!("[SEARCH] Linear search completed in {:.2}ms, found {} results", 
+                 linear_search_duration.as_secs_f64() * 1000.0, results.len());
     }
     
     // Add keyword-based search for files without embeddings
@@ -388,6 +417,12 @@ pub async fn search_files(
     if !results.is_empty() {
         eprintln!("Sample similarities before sorting: {:?}", 
             results.iter().take(5).map(|(m, s)| (m.file_name.clone(), *s)).collect::<Vec<_>>());
+    }
+
+    // Deduplicate by identical embeddings when enabled (keep lexicographically smaller path)
+    if state.config.filter_duplicate_files {
+        results = deduplicate_by_embedding(results, &state).await;
+        eprintln!("Results after deduplication: {}", results.len());
     }
 
     // Sort by similarity (descending)
@@ -478,6 +513,65 @@ fn apply_filters(
             true
         })
         .collect()
+}
+
+/// Deduplicate results by identical embeddings. When two files have the same embedding,
+/// keep only the one with the lexicographically smaller file_path (e.g., fileA.pdf before fileA (1).pdf).
+/// Files without embeddings (metadata-only) are kept as-is.
+async fn deduplicate_by_embedding(
+    results: Vec<(crate::storage::FileMetadata, f32)>,
+    state: &AppState,
+) -> Vec<(crate::storage::FileMetadata, f32)> {
+    let mut with_embedding: Vec<(crate::storage::FileMetadata, f32)> = Vec::new();
+    let mut without_embedding: Vec<(crate::storage::FileMetadata, f32)> = Vec::new();
+
+    for (meta, score) in results {
+        if meta.embedding_length <= 0 {
+            without_embedding.push((meta, score));
+        } else {
+            with_embedding.push((meta, score));
+        }
+    }
+
+    if with_embedding.is_empty() {
+        return without_embedding;
+    }
+
+    // Map: embedding_key -> (metadata, score); when duplicate, keep lexicographically smaller path
+    let mut seen: HashMap<Vec<u8>, (crate::storage::FileMetadata, f32)> = HashMap::new();
+
+    for (meta, score) in with_embedding {
+        let Ok(embedding) = state.storage.get_embedding(&meta).await else {
+            // Failed to load embedding, keep the result
+            without_embedding.push((meta, score));
+            continue;
+        };
+
+        let key = match bincode::serialize(&embedding) {
+            Ok(k) => k,
+            Err(_) => {
+                without_embedding.push((meta, score));
+                continue;
+            }
+        };
+
+        match seen.get_mut(&key) {
+            None => {
+                seen.insert(key, (meta, score));
+            }
+            Some((existing_meta, existing_score)) => {
+                // Keep the lexicographically smaller file_path
+                if meta.file_path < existing_meta.file_path {
+                    *existing_meta = meta;
+                    *existing_score = score;
+                }
+            }
+        }
+    }
+
+    let mut deduped: Vec<_> = seen.into_values().collect();
+    deduped.extend(without_embedding);
+    deduped
 }
 
 /// Check if a timestamp matches the date range filter

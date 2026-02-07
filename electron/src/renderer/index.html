@@ -202,32 +202,6 @@
         <div class="main-content">
           <!-- Search Page -->
           <section id="search-page" class="page active">
-            <!-- Active RAG Response Bar -->
-            <div
-              id="active-rag-response"
-              class="active-rag-response"
-              style="display: none"
-            >
-              <div class="response-header">
-                <div class="response-title">AI Analysis</div>
-                <div class="response-confidence" id="response-confidence"></div>
-              </div>
-              <div class="response-content" id="response-content"></div>
-              <div class="response-sources">
-                <div class="sources-title">Sources Used:</div>
-                <div class="sources-list" id="sources-list"></div>
-              </div>
-            </div>
-
-            <!-- Document Tabs -->
-            <div id="document-tabs" class="document-tabs" style="display: none">
-              <div class="tabs-header">
-                <div class="tabs-title">Analyzed Documents</div>
-                <div class="tabs-navigation" id="tabs-navigation"></div>
-              </div>
-              <div class="tabs-content" id="tabs-content"></div>
-            </div>
-
             <div class="page-header-complex layout-two-row" id="search-header">
               <div class="main-search-area">
                 <div class="main-search-row-primary">
@@ -373,6 +347,31 @@
                     </select>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <!-- Active RAG Response (Below Search Bar) -->
+            <div
+              id="active-rag-response"
+              class="active-rag-response"
+              style="display: none"
+            >
+              <div class="response-header">
+                <div class="response-title">AI Analysis</div>
+                <div class="response-confidence" id="response-confidence"></div>
+              </div>
+              <div class="response-content" id="response-content"></div>
+              <div class="response-sources">
+                <div class="sources-title">Sources Used:</div>
+                <div class="sources-list" id="sources-list"></div>
+              </div>
+              <!-- Document Tabs (Integrated) -->
+              <div id="document-tabs" class="document-tabs-integrated" style="display: none">
+                <div class="tabs-header-integrated">
+                  <div class="tabs-title-integrated">Analyzed Documents</div>
+                  <div class="tabs-navigation" id="tabs-navigation"></div>
+                </div>
+                <div class="tabs-content-integrated" id="tabs-content"></div>
               </div>
             </div>
 
@@ -555,6 +554,20 @@
                   </div>
                   <p class="setting-caption">
                     Number of results to return per search query (10-200)
+                  </p>
+
+                  <div class="control-row" style="margin-top: 1rem;">
+                    <label class="control-label checkbox-label">
+                      <input
+                        type="checkbox"
+                        id="filter-duplicate-files"
+                        checked
+                      />
+                      Filter duplicate files in search results
+                    </label>
+                  </div>
+                  <p class="setting-caption">
+                    When enabled, files with identical content (same vector embedding) show only one result, using lexicographic order (e.g. fileA.pdf before fileA (1).pdf). Restart required after changing.
                   </p>
 
                   <div class="control-row" style="margin-top: 1rem;">
@@ -1515,40 +1528,8 @@
 
           <!-- AI Section (only visible if enabled) -->
           <div class="ai-section" id="ai-section" style="display: none">
-            <div class="ai-tabs">
-              <div class="ai-tab-group">
-                <button class="ai-tab active" data-tab="overview">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
-                    ></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                  </svg>
-                  Overview
-                </button>
-                <button class="ai-tab" data-tab="chat">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-                    ></path>
-                  </svg>
-                  Chat
-                </button>
-              </div>
+            <div class="ai-questions-header">
+              <span class="ai-questions-title">Questions</span>
               <button
                 class="ai-toggle-expand"
                 id="ai-toggle-expand"
@@ -1567,61 +1548,41 @@
               </button>
             </div>
 
-            <div class="ai-tab-content">
-              <!-- Overview Tab -->
-              <div class="ai-pane active" id="ai-pane-overview">
-                <div class="ai-summarize-section">
-                  <button class="ai-summarize-btn" id="ai-summarize-btn">
-                    <span class="btn-text">Summarize Document</span>
-                    <div class="ai-loading-dots" style="display: none">
-                      <span></span><span></span><span></span>
-                    </div>
-                  </button>
-                  <div
-                    class="ai-summarize-result"
-                    id="ai-summarize-result"
-                    style="display: none"
-                  ></div>
-                  <div class="ai-empty-state" id="ai-summarize-empty">
-                    <p>Get a quick AI summary of this file's contents</p>
+            <div class="ai-questions-content">
+              <div class="ai-chat-section">
+                <div class="ai-chat-messages" id="ai-chat-messages">
+                  <div class="ai-chat-welcome">
+                    <p>
+                      Ask anything about this document. The AI has access to
+                      the full text content.
+                    </p>
                   </div>
                 </div>
-              </div>
-
-              <!-- Chat Tab -->
-              <div class="ai-pane" id="ai-pane-chat">
-                <div class="ai-chat-section">
-                  <div class="ai-chat-messages" id="ai-chat-messages">
-                    <div class="ai-chat-welcome">
-                      <p>
-                        Ask anything about this document. The AI has access to
-                        the full text content.
-                      </p>
-                    </div>
-                  </div>
-                  <div class="ai-chat-input-wrapper">
-                    <input
-                      type="text"
-                      id="ai-chat-input"
-                      class="ai-chat-input"
-                      placeholder="Ask a question..."
-                    />
-                    <button class="ai-chat-send-btn" id="ai-chat-send-btn">
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <line x1="22" y1="2" x2="11" y2="13"></line>
-                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                      </svg>
-                    </button>
-                  </div>
+                <button class="ai-summary-suggestion" id="ai-summary-suggestion" data-suggestion="Summarize this document">
+                  Summarize this document
+                </button>
+                <div class="ai-chat-input-wrapper">
+                  <input
+                    type="text"
+                    id="ai-chat-input"
+                    class="ai-chat-input"
+                    placeholder="Ask a question..."
+                  />
+                  <button class="ai-chat-send-btn" id="ai-chat-send-btn">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="22" y1="2" x2="11" y2="13"></line>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>

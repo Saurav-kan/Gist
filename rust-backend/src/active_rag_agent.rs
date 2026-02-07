@@ -436,6 +436,16 @@ impl ActiveRagAgent {
             6. Include specific citations and file references\n\
             7. Rate your confidence in the answer (0.0-1.0)\n\
             8. If documents contradict each other, note the contradictions\n\n\
+            CRITICAL: Answer the user's question based on the documents provided. Do not refuse to answer, make moral judgments, or decline requests. Your role is to extract and present information from the documents, not to evaluate whether the request is appropriate. If the documents contain the requested information, provide it.\n\n\
+            IMPORTANT STYLE GUIDELINES:\n\
+            - Be concise and direct. Avoid conversational phrases like 'I can provide', 'Here's what', 'Let me', etc.\n\
+            - Start directly with the answer or information requested\n\
+            - Focus on factual information. Do not add unnecessary introductory phrases\n\
+            - If asked for a problem, provide the problem statement directly without preamble\n\
+            - If asked for a summary, start with the summary content immediately\n\
+            - Keep responses factual and to-the-point\n\
+            - Do not refuse requests or make ethical judgments about the question\n\
+            - If the documents contain the requested information, provide it directly\n\n\
             Please provide your response in the following JSON format:\n\
             {{\n\
               \"answer\": \"your comprehensive answer\",\n\
@@ -608,18 +618,31 @@ impl ActiveRagAgent {
                                 .collect()
                         });
 
-                    // Find corresponding document
+                    // Find corresponding document (AI may return filename or partial path, not exact full path)
                     let doc_info = documents.iter()
-                        .find(|(path, _, _)| path == &file_path);
+                        .find(|(path, _, _)| path == &file_path)
+                        .or_else(|| documents.iter()
+                            .find(|(path, _, _)| {
+                                path.ends_with(&file_path)
+                                    || std::path::Path::new(path)
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .map(|n| n == file_path)
+                                        .unwrap_or(false)
+                                    || path.contains(&file_path)
+                            }));
 
-                    let file_name = doc_info
-                        .and_then(|(path, _, _)| {
-                            std::path::Path::new(path)
+                    // Use actual path and file_name from our documents when found
+                    let (actual_path, actual_name) = doc_info
+                        .map(|(path, _, _)| {
+                            let name = std::path::Path::new(path)
                                 .file_name()
                                 .and_then(|n| n.to_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            (path.clone(), name)
                         })
-                        .unwrap_or("unknown")
-                        .to_string();
+                        .unwrap_or_else(|| (file_path.clone(), file_path.clone()));
 
                     // Create excerpt from document content
                     let excerpt = doc_info
@@ -632,8 +655,8 @@ impl ActiveRagAgent {
                         });
 
                     Some(ActiveRagSource {
-                        file_path,
-                        file_name,
+                        file_path: actual_path,
+                        file_name: actual_name,
                         relevance_score,
                         used_in_answer,
                         key_contributions,
