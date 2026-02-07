@@ -54,6 +54,60 @@ fn adjust_similarity_for_file_length(
     adjusted.max(0.0).min(1.0)
 }
 
+/// Apply the same scoring pipeline used by the main search API.
+/// Takes raw (metadata, vector_similarity) pairs and returns scored, sorted results.
+pub fn score_search_results(
+    query: &str,
+    results: Vec<(crate::storage::FileMetadata, f32)>,
+) -> Vec<(crate::storage::FileMetadata, f32)> {
+    let query_word_count = query.split_whitespace().count();
+    let mut scored: Vec<_> = results
+        .into_iter()
+        .map(|(meta, vector_sim)| {
+            let filename_sim = filename_similarity(query, &meta.file_name);
+            let query_lower = query.to_lowercase();
+            let word_count = query.split_whitespace().count();
+            let has_extension = query.contains('.');
+            let is_short = query.len() < 20;
+            let semantic_keywords = [
+                "calculus", "algebra", "geometry", "physics", "chemistry", "biology",
+                "history", "literature", "philosophy", "psychology", "sociology",
+                "programming", "algorithm", "database", "network", "security",
+                "homework", "assignment", "project", "report", "essay", "thesis",
+                "mathematics", "math", "science", "engineering", "computer",
+            ];
+            let is_semantic_keyword = semantic_keywords
+                .iter()
+                .any(|kw| query_lower == *kw || query_lower.starts_with(kw));
+            let is_filename_query = has_extension
+                || (word_count > 1 && is_short && filename_sim > 0.7)
+                || (word_count == 1 && !is_semantic_keyword && filename_sim > 0.8);
+            let (vector_weight, filename_weight) = if is_filename_query {
+                (0.3, 0.7)
+            } else {
+                (0.8, 0.2)
+            };
+            let mut hybrid_sim =
+                hybrid_similarity(vector_sim, filename_sim, (vector_weight, filename_weight));
+            if filename_sim < 0.1 && vector_sim > 0.6 {
+                hybrid_sim *= 0.8;
+            }
+            if word_count == 1 && filename_sim < 0.3 {
+                hybrid_sim *= 0.85;
+            }
+            let adjusted = adjust_similarity_for_file_length(
+                hybrid_sim,
+                &meta.file_name,
+                meta.file_size,
+                query_word_count,
+            );
+            (meta, adjusted)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterOptions {
     pub date_range: Option<DateRange>,
@@ -518,7 +572,7 @@ fn apply_filters(
 /// Deduplicate results by identical embeddings. When two files have the same embedding,
 /// keep only the one with the lexicographically smaller file_path (e.g., fileA.pdf before fileA (1).pdf).
 /// Files without embeddings (metadata-only) are kept as-is.
-async fn deduplicate_by_embedding(
+pub(crate) async fn deduplicate_by_embedding(
     results: Vec<(crate::storage::FileMetadata, f32)>,
     state: &AppState,
 ) -> Vec<(crate::storage::FileMetadata, f32)> {

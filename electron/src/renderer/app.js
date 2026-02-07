@@ -855,8 +855,26 @@ async function displayResults(results) {
       enhanceExeIcon(item.querySelector(".file-icon-wrapper"), filePath);
     }
 
+    // Single-click: preview. Double-click: open file externally (same as Desktop/Downloads)
+    let clickTimer = null;
     item.addEventListener("click", async () => {
-      await openPreviewPanel(filePath);
+      if (clickTimer) {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+        return;
+      }
+      clickTimer = setTimeout(async () => {
+        clickTimer = null;
+        await openPreviewPanel(filePath);
+      }, 200);
+    });
+    item.addEventListener("dblclick", async (e) => {
+      e.preventDefault();
+      if (clickTimer) {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+      }
+      await openFile(filePath);
     });
 
     resultsList.appendChild(item);
@@ -2794,29 +2812,30 @@ function displayFolderFiles(items, fileListId) {
   fileList.querySelectorAll(".file-item").forEach((item) => {
     let clickTimer = null;
 
-    item.addEventListener("click", async () => {
+    item.addEventListener("click", async (e) => {
       const filePath = item.dataset.path;
       const isDir = item.dataset.isDir === "true";
 
-      // Clear any existing timer
+      // If timer exists, this may be the second click of a double-click - clear and wait for dblclick
       if (clickTimer) {
         clearTimeout(clickTimer);
         clickTimer = null;
+        return;
       }
 
       if (isDir) {
-        // For directories, show hint on single click
-        // Navigation happens on double click
+        // For directories, navigation happens on double click
         return;
-      } else {
-        // Single click on file: open preview panel
-        clickTimer = setTimeout(async () => {
-          await openPreviewPanel(filePath);
-        }, 200); // Small delay to distinguish from double click
       }
+
+      // Single click on file: open preview panel (delay to distinguish from double click)
+      clickTimer = setTimeout(async () => {
+        clickTimer = null;
+        await openPreviewPanel(filePath);
+      }, 150);
     });
 
-    item.addEventListener("dblclick", async () => {
+    item.addEventListener("dblclick", async (e) => {
       // Clear single click timer
       if (clickTimer) {
         clearTimeout(clickTimer);
@@ -2845,8 +2864,9 @@ function displayFolderFiles(items, fileListId) {
           }
         }
 
-        // Navigate to the folder
-        await loadFolderFiles(filePath, fileListId);
+        // Navigate to the folder (pass pageType for sort settings)
+        const pageType = fileListId.replace("-file-list", "");
+        await loadFolderFiles(filePath, fileListId, pageType);
 
         // Update breadcrumb
         const currentFolder = document.getElementById("current-folder");

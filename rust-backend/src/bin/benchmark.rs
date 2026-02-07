@@ -6,6 +6,7 @@ use std::fs;
 use serde::Serialize;
 
 use nlp_file_explorer_backend::{
+    api::search::score_search_results,
     config::AppConfig,
     storage::Storage,
     indexer::Indexer,
@@ -17,9 +18,13 @@ use nlp_file_explorer_backend::{
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Directory to index
+    /// Directory to index (required unless --search-only)
     #[arg(short, long)]
-    directory: String,
+    directory: Option<String>,
+
+    /// Skip indexing; use existing embeddings from database for search benchmark
+    #[arg(long)]
+    search_only: bool,
 
     /// Number of files to benchmark (default: all files)
     #[arg(short, long)]
@@ -32,6 +37,10 @@ struct Args {
     /// Optional file with search queries to test
     #[arg(short, long)]
     search_queries: Option<String>,
+
+    /// Show top N search results per query for accuracy verification (0 = off)
+    #[arg(long, default_value = "0")]
+    show_top: usize,
 }
 
 #[derive(Serialize)]
@@ -57,11 +66,21 @@ struct SearchBenchmark {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
+    if !args.search_only && args.directory.is_none() {
+        anyhow::bail!("--directory (-d) is required unless using --search-only");
+    }
+
     println!("=== NLP File Explorer Benchmark ===");
-    println!("Directory: {}", args.directory);
+    println!("Mode: {}", if args.search_only { "search-only (using existing index)" } else { "full (index + search)" });
+    if let Some(ref dir) = args.directory {
+        println!("Directory: {}", dir);
+    }
     println!("Format: {}", args.format);
     if let Some(count) = args.count {
         println!("File limit: {}", count);
+    }
+    if args.show_top > 0 {
+        println!("Show top results: {}", args.show_top);
     }
     println!();
 
@@ -77,25 +96,33 @@ async fn main() -> Result<()> {
         Arc::new(config.clone()),
     ));
 
-    // Benchmark indexing
-    let indexing_start = Instant::now();
-    println!("Starting indexing benchmark...");
-    let indexed_count = indexer.index_directory(&args.directory).await?;
-    let indexing_duration = indexing_start.elapsed();
-    let total_time_secs = indexing_duration.as_secs_f64();
-
-    // Get all embeddings
-    let embeddings = storage.get_all_embeddings().await?;
-
-    println!("\n=== Indexing Results ===");
-    println!("Total files indexed: {}", indexed_count);
-    if indexed_count > 0 {
-        println!("Total time: {:.2} seconds ({:.2} minutes)", total_time_secs, total_time_secs / 60.0);
-        println!("Average time per file: {:.3} seconds", total_time_secs / indexed_count as f64);
-        println!("Files per second: {:.2}", indexed_count as f64 / total_time_secs);
+    let (indexed_count, total_time_secs, embeddings) = if args.search_only {
+        println!("Skipping indexing (--search-only), loading embeddings from database...");
+        let emb = storage.get_all_embeddings().await?;
+        if emb.is_empty() {
+            anyhow::bail!("No embeddings in database. Run a full benchmark with -d <directory> first to index files.");
+        }
+        println!("Loaded {} embeddings from existing index", emb.len());
+        (emb.len(), 0.0, emb)
     } else {
-        println!("No files indexed");
-    }
+        let dir = args.directory.as_ref().unwrap();
+        let indexing_start = Instant::now();
+        println!("Starting indexing benchmark...");
+        let count = indexer.index_directory(dir).await?;
+        let total = indexing_start.elapsed().as_secs_f64();
+
+        println!("\n=== Indexing Results ===");
+        println!("Total files indexed: {}", count);
+        if count > 0 {
+            println!("Total time: {:.2} seconds ({:.2} minutes)", total, total / 60.0);
+            println!("Average time per file: {:.3} seconds", total / count as f64);
+            println!("Files per second: {:.2}", count as f64 / total);
+        } else {
+            println!("No files indexed");
+        }
+        let emb = storage.get_all_embeddings().await?;
+        (count, total, emb)
+    };
 
     // Benchmark HNSW build
     println!("\n=== HNSW Index Build ===");
@@ -125,10 +152,10 @@ async fn main() -> Result<()> {
                 println!("Warnings: {}", verification.warnings.len());
             }
 
-            // Benchmark search if queries provided
+            // Benchmark search if queries provided (uses same scoring as main app)
             let mut search_results = Vec::new();
             if let Some(queries_file) = &args.search_queries {
-                println!("\n=== Search Benchmark ===");
+                println!("\n=== Search Benchmark (app scoring: hybrid + penalties) ===");
                 if let Ok(queries_content) = fs::read_to_string(queries_file) {
                     let queries: Vec<String> = queries_content
                         .lines()
@@ -136,21 +163,34 @@ async fn main() -> Result<()> {
                         .filter(|s| !s.is_empty())
                         .collect();
                     
+                    let top_k = 10;
+                    let candidate_count = top_k * 2; // Match main app: fetch 2x for re-ranking
+                    
                     for query in queries {
                         let search_start = Instant::now();
                         // Generate embedding for query
                         let query_embedding = embedding_service.generate_embedding(&query).await?;
-                        let search_result = hnsw_index.search(query_embedding, 10)?;
+                        // Fetch more candidates, then apply same scoring pipeline as main search
+                        let raw_results = hnsw_index.search(query_embedding, candidate_count)?;
+                        let scored = score_search_results(&query, raw_results);
+                        let final_results: Vec<_> = scored.into_iter().take(top_k).collect();
                         let search_duration = search_start.elapsed();
                         
                         search_results.push(SearchBenchmark {
                             query: query.clone(),
-                            results_count: search_result.len(),
+                            results_count: final_results.len(),
                             search_time_ms: search_duration.as_secs_f64() * 1000.0,
                         });
                         
                         println!("Query: '{}' -> {} results in {:.2}ms", 
-                                query, search_result.len(), search_duration.as_secs_f64() * 1000.0);
+                                query, final_results.len(), search_duration.as_secs_f64() * 1000.0);
+
+                        if args.show_top > 0 && !final_results.is_empty() {
+                            let n = args.show_top.min(final_results.len());
+                            for (i, (meta, score)) in final_results.iter().take(n).enumerate() {
+                                println!("    {}. {} ({:.1}%)", i + 1, meta.file_name, score * 100.0);
+                            }
+                        }
                     }
                 } else {
                     eprintln!("Warning: Could not read queries file: {}", queries_file);

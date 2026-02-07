@@ -45,16 +45,25 @@ Use `--release` for realistic performance; debug builds are much slower.
 
 | Argument | Short | Required | Default | Description |
 |----------|-------|----------|---------|-------------|
-| `--directory` | `-d` | Yes | — | Directory to index |
+| `--directory` | `-d` | Yes* | — | Directory to index (*required unless `--search-only`) |
+| `--search-only` | — | No | false | Skip indexing; use existing embeddings from database |
 | `--count` | `-c` | No | all | Limit number of files (if supported) |
 | `--format` | `-f` | No | `human` | Output format: `human`, `json`, or `csv` |
 | `--search_queries` | `-s` | No | — | Path to text file with one search query per line |
+| `--show-top` | — | No | 0 | Show top N results per query for accuracy verification (0 = off) |
 
 ### Examples
 
 ```bash
 # Basic run: index a directory and measure performance
 cargo run --release --bin benchmark -- -d C:\Users\kande\Desktop
+
+# Search-only: benchmark search latency using existing index (no re-indexing)
+# Requires a previously indexed database; -s recommended for meaningful results
+cargo run --release --bin benchmark -- --search-only -s queries.txt
+
+# Show top 3 results per query to verify search accuracy
+cargo run --release --bin benchmark -- --search-only -s queries.txt --show-top 3
 
 # JSON output (for scripting or CI)
 cargo run --release --bin benchmark -- -d ./docs -f json
@@ -129,4 +138,4 @@ Valid: true
 - **Use `--release`** — Debug builds can be 10x+ slower
 - **Warm Ollama** — First embedding calls may be slower; subsequent runs reflect steady-state performance
 - **Mixed content** — Realistic benchmarks use directories with PDFs, DOCX, images, and configs
-- **Search benchmark** — Provide `-s queries.txt` to measure query embedding + HNSW search latency
+- **Search benchmark** — Provide `-s queries.txt` to measure query embedding + HNSW search latency. Results use the **same scoring pipeline as the app** (hybrid vector+filename, penalties for short filenames, etc.), so `--show-top` reflects what users actually see.

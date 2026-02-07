@@ -5,7 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::active_rag_agent::{ActiveRagAgent, ActiveRagResponse, DecomposedIntent};
-use crate::api::search::{SearchRequest, SearchResult};
+use crate::api::search::{deduplicate_by_embedding, SearchRequest, SearchResult};
 use crate::parsers::ParserRegistry;
 use crate::config::FileTypeFilters;
 
@@ -301,6 +301,12 @@ async fn perform_vector_search(
     eprintln!("[Vector Search] Similarity calculation complete:");
     eprintln!("[Vector Search]   Results above threshold (0.3): {}", results.len());
     eprintln!("[Vector Search]   Results below threshold: {}", below_threshold);
+
+    // Deduplicate by identical embeddings when enabled (same logic as main search)
+    if state.config.filter_duplicate_files {
+        results = deduplicate_by_embedding(results, state).await;
+        eprintln!("[Vector Search] Results after deduplication: {}", results.len());
+    }
 
     // Sort by similarity and take top results
     results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
