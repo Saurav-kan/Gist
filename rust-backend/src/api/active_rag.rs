@@ -5,7 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::active_rag_agent::{ActiveRagAgent, ActiveRagResponse, DecomposedIntent};
-use crate::api::search::{deduplicate_by_embedding, SearchRequest, SearchResult};
+use crate::api::search::{deduplicate_by_embedding, score_search_results, SearchRequest, SearchResult};
 use crate::parsers::ParserRegistry;
 use crate::config::FileTypeFilters;
 
@@ -267,53 +267,50 @@ async fn perform_vector_search(
     state: &AppState,
     request: &SearchRequest,
 ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
-    eprintln!("[Vector Search] Starting vector search...");
-    eprintln!("[Vector Search] Query: '{}'", request.query);
-    eprintln!("[Vector Search] Limit: {:?}", request.limit);
-    
-    // This is a simplified version - we'll reuse the existing search logic
-    // In a full implementation, we'd call the existing search endpoint logic directly
+    let query = request.query.trim();
+    let limit = request.limit.unwrap_or(3);
+    eprintln!("[Vector Search] Starting vector search (same pipeline as regular search)...");
+    eprintln!("[Vector Search] Query: '{}'", query);
+    eprintln!("[Vector Search] Limit: {}", limit);
+
     let embedding_service = crate::embedding::EmbeddingService::new(
-        state.config.embedding_model.clone()
+        state.config.embedding_model.clone(),
     );
-    
-    eprintln!("[Vector Search] Generating query embedding using model: {}", state.config.embedding_model);
-    let query_embedding = embedding_service.generate_embedding(&request.query)
-        .await?;
+    let query_embedding = embedding_service.generate_embedding(query).await?;
     eprintln!("[Vector Search] ✓ Query embedding generated (dimension: {})", query_embedding.len());
 
-    // Get all embeddings and calculate similarities
-    eprintln!("[Vector Search] Retrieving all file embeddings from storage...");
-    let files_with_embeddings = state.storage.get_all_embeddings().await?;
-    eprintln!("[Vector Search] Found {} files with embeddings", files_with_embeddings.len());
-    
-    let mut results = Vec::new();
-    let mut below_threshold = 0;
-    for (metadata, embedding) in files_with_embeddings {
-        let similarity = crate::search::cosine_similarity(&query_embedding, &embedding);
-        if similarity > 0.3 { // Basic relevance threshold
-            results.push((metadata, similarity));
-        } else {
-            below_threshold += 1;
+    // Use same pipeline as regular search: HNSW (or linear) + hybrid scoring + length penalties
+    let mut results: Vec<(crate::storage::FileMetadata, f32)> = Vec::new();
+
+    let hnsw_guard = state.hnsw_index.read().await;
+    if let Some(ref hnsw) = *hnsw_guard {
+        if hnsw.len() > 0 {
+            let candidate_count = (limit * 10).max(50); // Enough candidates for re-scoring
+            if let Ok(hnsw_results) = hnsw.search(query_embedding.clone(), candidate_count) {
+                eprintln!("[Vector Search] HNSW returned {} candidates", hnsw_results.len());
+                results = score_search_results(query, hnsw_results);
+            }
         }
     }
-    
-    eprintln!("[Vector Search] Similarity calculation complete:");
-    eprintln!("[Vector Search]   Results above threshold (0.3): {}", results.len());
-    eprintln!("[Vector Search]   Results below threshold: {}", below_threshold);
+    drop(hnsw_guard);
 
-    // Deduplicate by identical embeddings when enabled (same logic as main search)
-    if state.config.filter_duplicate_files {
-        results = deduplicate_by_embedding(results, state).await;
-        eprintln!("[Vector Search] Results after deduplication: {}", results.len());
+    if results.is_empty() {
+        eprintln!("[Vector Search] HNSW unavailable or empty, using linear search...");
+        let files_with_embeddings = state.storage.get_all_embeddings().await?;
+        let raw_results: Vec<_> = files_with_embeddings
+            .into_iter()
+            .map(|(metadata, embedding)| {
+                let vector_sim = crate::search::cosine_similarity(&query_embedding, &embedding);
+                (metadata, vector_sim)
+            })
+            .collect();
+        results = score_search_results(query, raw_results);
     }
 
-    // Sort by similarity and take top results
-    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    
-    let limit = request.limit.unwrap_or(3);
-    eprintln!("[Vector Search] Taking top {} results", limit);
-    
+    if state.config.filter_duplicate_files {
+        results = deduplicate_by_embedding(results, state).await;
+    }
+
     let search_results: Vec<SearchResult> = results
         .into_iter()
         .take(limit)

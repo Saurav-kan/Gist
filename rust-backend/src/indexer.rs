@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 use crate::config::AppConfig;
@@ -225,11 +226,18 @@ impl Indexer {
             return self.index_file_metadata_only(file_path).await;
         }
         
-        // Extract text
-        let text = self.parser_registry.extract_text(file_path)?;
+        // Extract text - on failure, store metadata-only so we don't reindex every run
+        let text = match self.parser_registry.extract_text(file_path) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("[INDEXING] Text extraction failed for {}: {}. Indexing metadata only.", file_path, e);
+                return self.index_file_metadata_only(file_path).await;
+            }
+        };
         
         if text.trim().is_empty() {
-            return Ok(());
+            // No extractable text - store metadata-only so we don't reindex every run
+            return self.index_file_metadata_only(file_path).await;
         }
 
         // Chunk text if needed
@@ -266,7 +274,16 @@ impl Indexer {
         if total_estimated_tokens <= max_context {
             // File fits in context - use all chunks
             let combined_text = chunks.join("\n\n");
-            let embedding = self.embedding_service.generate_embedding(&combined_text).await?;
+            
+            // Double check length just in case
+            let final_text = if combined_text.len() > max_context * 4 {
+                let max_chars = max_context * 4;
+                 combined_text.chars().take(max_chars).collect()
+            } else {
+                combined_text
+            };
+
+            let embedding = self.generate_safe_embedding(&final_text, &file_name).await?;
             
             let file_metadata = FileMetadata {
                 id: 0,
@@ -283,7 +300,7 @@ impl Indexer {
         } else if total_estimated_tokens <= multiple_embedding_threshold {
             // File is 1x-4x context size - use intelligent sampling
             let sampled_text = Self::intelligent_chunk_sampling(&chunks, max_context);
-            let embedding = self.embedding_service.generate_embedding(&sampled_text).await?;
+            let embedding = self.generate_safe_embedding(&sampled_text, &file_name).await?;
             
             eprintln!("[INDEXING] Large file '{}' ({:.1}K tokens) - used intelligent sampling", 
                 file_name, total_estimated_tokens as f64 / 1000.0);
@@ -308,7 +325,7 @@ impl Indexer {
             let embedding_sections = Self::create_multiple_embedding_sections(&chunks, max_context);
             
             for (section_idx, section_text) in embedding_sections.iter().enumerate() {
-                let embedding = self.embedding_service.generate_embedding(section_text).await?;
+                let embedding = self.generate_safe_embedding(section_text, &file_name).await?;
                 
                 // Create unique file path for this embedding (for storage)
                 let section_path = if section_idx == 0 {
@@ -341,6 +358,41 @@ impl Indexer {
         }
 
         Ok(())
+    }
+
+    /// Wrapper for generating embeddings with retry logic for context length errors
+    async fn generate_safe_embedding(&self, text: &str, file_name: &str) -> Result<Vec<f32>> {
+        match self.embedding_service.generate_embedding(text).await {
+            Ok(emb) => Ok(emb),
+            Err(e) => {
+                let error_msg = e.to_string();
+                // Match "500 Internal" strictly, or "context length"
+                if error_msg.contains("500") || error_msg.contains("context length") || error_msg.contains("Internal Server Error") {
+                    println!("[INDEXING] Context length error for '{}', trying 50% truncation ({} chars)", file_name, text.len() / 2);
+                    
+                    let half_len = text.len() / 2;
+                    // Ensure we don't slice in the middle of a char
+                    let truncated: String = text.chars().take(half_len).collect();
+                    
+                    if half_len < 10 {
+                         return Err(e); // Stop if too small
+                    }
+
+                     match self.embedding_service.generate_embedding(&truncated).await {
+                         Ok(emb) => Ok(emb),
+                         Err(e2) => {
+                             // Try one more time at 25%?
+                             println!("[INDEXING] Context length error again for '{}', trying 25% truncation...", file_name);
+                             let quarter_len = text.len() / 4;
+                             let truncated_q: String = text.chars().take(quarter_len).collect();
+                             self.embedding_service.generate_embedding(&truncated_q).await
+                         }
+                     }
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
 
     fn chunk_text(&self, text: &str) -> Vec<String> {
@@ -403,10 +455,20 @@ impl Indexer {
         
         // Estimate tokens and truncate if still too large
         let estimated_tokens = combined.len() / 4;
-        if estimated_tokens > max_tokens {
-            // Truncate to max_tokens (preserve beginning)
-            let max_chars = max_tokens * 4;
-            combined.chars().take(max_chars).collect()
+        
+        // Use a much safer margin (75% of max) to avoid edge cases with tokenization
+        // Some models have very different token/char ratios for code/special chars
+        let safe_limit = (max_tokens as f64 * 0.75) as usize;
+        
+        if estimated_tokens > safe_limit {
+            // Truncate to safe limit
+            let max_chars = safe_limit * 4;
+            
+            if combined.len() > max_chars {
+                 combined.chars().take(max_chars).collect()
+            } else {
+                combined
+            }
         } else {
             combined
         }
@@ -576,4 +638,134 @@ impl Indexer {
             file_name.ends_with(ext)
         })
     }
+    pub async fn perform_startup_scan(&self) -> Result<()> {
+        if !self.config.auto_index || self.config.indexed_directories.is_empty() {
+            return Ok(());
+        }
+
+        println!("[STARTUP] Starting file synchronization...");
+        
+        let mut indexing = self.is_indexing.write().await;
+        if *indexing {
+            return Ok(());
+        }
+        *indexing = true;
+        drop(indexing);
+
+        // Get all files currently in the database
+        let db_files = self.storage.get_all_files().await?;
+        let mut db_files_map: HashMap<String, FileMetadata> = db_files
+            .into_iter()
+            .map(|f| (f.file_path.clone(), f))
+            .collect();
+            
+        println!("[STARTUP] Database contains {} files. Scanning disk...", db_files_map.len());
+
+        // Collect files to index (new or modified)
+        let mut files_to_index = Vec::new();
+
+        println!("[STARTUP] Configured to scan {} directories:", self.config.indexed_directories.len());
+        for dir in &self.config.indexed_directories {
+            println!("[STARTUP] - {}", dir);
+             if !std::path::Path::new(dir).exists() {
+                println!("[STARTUP]   (Directory does not exist, skipping)");
+                continue;
+            }
+            
+            for entry in walkdir::WalkDir::new(dir)
+                .into_iter()
+                .filter_map(|e| e.ok()) 
+            {
+                if entry.file_type().is_file() {
+                     let file_path = entry.path().to_string_lossy().to_string();
+                     
+                     // Diagnostic logging for EVERY file to debug detection
+                     // println!("[STARTUP] Checking: {}", file_path); 
+                     
+                     if Self::should_exclude_file(&file_path) {
+                         // println!("[STARTUP] Excluded: {}", file_path);
+                         continue;
+                     }
+                     
+                     // Check if file exists in DB
+                     if let Some(metadata) = db_files_map.remove(&file_path) {
+                         // File exists in DB - only reindex if modified
+                         if let Ok(fs_metadata) = std::fs::metadata(&file_path) {
+                             let modified = fs_metadata.modified()
+                                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs() as i64;
+                            let size = fs_metadata.len() as i64;
+                            
+                             if modified != metadata.modified_time || size != metadata.file_size {
+                                 println!("[STARTUP] File changed: {} (Time: {} vs {}, Size: {} vs {})", 
+                                     file_path, modified, metadata.modified_time, size, metadata.file_size);
+                                 if Self::should_index_metadata_only(&file_path) || self.parser_registry.can_parse(&file_path) {
+                                     files_to_index.push(file_path.clone());
+                                 } else {
+                                     println!("[STARTUP] Skipping changed file (unsupported type): {}", file_path);
+                                 }
+                             }
+                         }
+                     } else {
+                         // File NOT in DB - it's a new file
+                         if Self::should_index_metadata_only(&file_path) || self.parser_registry.can_parse(&file_path) {
+                             println!("[STARTUP] New file found: {}", file_path);
+                             files_to_index.push(file_path.clone());
+                         }
+                     }
+                }
+            }
+        }
+        
+        // Remove deleted files (those remaining in db_files_map)
+        if !db_files_map.is_empty() {
+            println!("[STARTUP] Found {} deleted files. Removing from index...", db_files_map.len());
+            for (path, _) in db_files_map {
+                if let Err(e) = self.storage.delete_file(&path).await {
+                    eprintln!("Failed to delete file from index: {}: {}", path, e);
+                }
+            }
+        }
+        
+        println!("[STARTUP] Found {} new/modified files to index.", files_to_index.len());
+        
+        // Index new/modified files
+        // We can reuse the logic from index_directory but it takes a directory path.
+        // It's better to iterate and call index_file directly or create a batch processor.
+        // For simplicity reusing the logic similar to index_directory but for a specific list.
+        
+        if !files_to_index.is_empty() {
+             // Initialize progress if tracker exists (optional for startup scan but good for UI)
+             // For now just process them.
+             
+            for file_path in files_to_index {
+                // Determine if metadata only
+                let result = if Self::should_index_metadata_only(&file_path) {
+                    println!("[STARTUP] Indexing metadata: {}", file_path);
+                    self.index_file_metadata_only(&file_path).await
+                } else {
+                    println!("[STARTUP] Indexing content: {}", file_path);
+                    
+                    // IMPORTANT: We need to use index_file here, but index_file checks filtering again.
+                    // It's safe to call.
+                    self.index_file(&file_path).await
+                };
+                
+                if let Err(e) = result {
+                    eprintln!("Error indexing {}: {}", file_path, e);
+                } else {
+                    println!("[STARTUP] Successfully indexed: {}", file_path);
+                }
+            }
+        }
+        
+        let mut indexing = self.is_indexing.write().await;
+        *indexing = false;
+        
+        println!("[STARTUP] Sync complete.");
+        Ok(())
+    }
 }
+

@@ -2463,11 +2463,35 @@ let selectedBrowserItem = null;
 let specialFolders = {};
 
 // Sort settings per page
+// Sort settings per page
 let sortSettings = {
-  desktop: { sort: "name", order: "asc" },
-  downloads: { sort: "name", order: "asc" },
-  documents: { sort: "name", order: "asc" },
+  desktop: { sort: "date_modified", order: "desc" },
+  downloads: { sort: "date_modified", order: "desc" },
+  documents: { sort: "date_modified", order: "desc" },
 };
+
+// Load sort settings from localStorage
+function loadSortSettings() {
+  try {
+    const stored = localStorage.getItem("sortSettings");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Merge with defaults to ensure all keys exist
+      sortSettings = { ...sortSettings, ...parsed };
+    }
+  } catch (error) {
+    console.error("Failed to load sort settings:", error);
+  }
+}
+
+// Save sort settings to localStorage
+function saveSortSettings() {
+  try {
+    localStorage.setItem("sortSettings", JSON.stringify(sortSettings));
+  } catch (error) {
+    console.error("Failed to save sort settings:", error);
+  }
+}
 
 // Load special folders on startup
 async function loadSpecialFolders() {
@@ -2738,6 +2762,23 @@ async function loadFolderFiles(
       if (pageType && sortSettings[pageType]) {
         sort = sortSettings[pageType].sort;
         order = sortSettings[pageType].order;
+
+        // Update UI controls to match current settings
+        const sortSelect = document.getElementById(`sort-select-${pageType}`);
+        const sortOrderBtn = document.getElementById(`sort-order-${pageType}`);
+        
+        if (sortSelect) {
+            sortSelect.value = sort;
+        }
+        
+        if (sortOrderBtn) {
+            sortOrderBtn.dataset.order = order;
+            // Update icon rotation
+            const svg = sortOrderBtn.querySelector("svg");
+            if (svg) {
+                svg.style.transform = order === "desc" ? "rotate(180deg)" : "rotate(0deg)";
+            }
+        }
       }
 
       const url = `/api/files/browse?path=${encodeURIComponent(folderPath)}&sort=${sort}&order=${order}`;
@@ -3164,6 +3205,7 @@ loadLibrariesTable();
 loadSpecialFolders();
 loadSearchHistory();
 loadViewPreferences();
+loadSortSettings();
 applyViewPreferences();
 
 // Set up preview panel close button
@@ -3229,6 +3271,7 @@ if (treeViewShowBtn) {
   if (sortSelect) {
     sortSelect.addEventListener("change", async (e) => {
       sortSettings[pageType].sort = e.target.value;
+      saveSortSettings();
       // Reload current folder with new sort
       const currentPage = document.querySelector(".page.active");
       if (currentPage && currentPage.id === `${pageType}-page`) {
@@ -3243,6 +3286,7 @@ if (treeViewShowBtn) {
       const newOrder = currentOrder === "asc" ? "desc" : "asc";
       sortOrderBtn.dataset.order = newOrder;
       sortSettings[pageType].order = newOrder;
+      saveSortSettings();
 
       // Update icon rotation
       const svg = sortOrderBtn.querySelector("svg");

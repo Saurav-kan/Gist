@@ -294,15 +294,12 @@ impl QueryParser {
         false
     }
 
-    /// Check if query explicitly mentions a specific month name
+    /// Check if query explicitly mentions a specific month name (as whole word, not substring)
     fn query_mentions_month(query: &str, month_name: &str) -> bool {
-        let query_lower = query.to_lowercase();
-        let month_lower = month_name.to_lowercase();
-        
-        // Check for exact month name or abbreviation
-        query_lower.contains(&month_lower) || 
-        query_lower.contains(&format!(" {}", month_lower)) ||
-        query_lower.contains(&format!("{} ", month_lower))
+        let escaped = regex::escape(month_name);
+        regex::Regex::new(&format!(r"(?i)\b{}\b", escaped))
+            .ok()
+            .map_or(false, |re| re.is_match(query))
     }
 
     /// Parse query using LLM (Ollama)
@@ -665,6 +662,7 @@ Return ONLY valid JSON, no other text:
         }
 
         // Pattern: "from December", "in December", "December", "during December"
+        // Use word boundaries to avoid false positives (e.g. "mar" in "market", "may" in "maybe")
         let month_patterns = vec![
             ("january", 1), ("jan", 1), ("february", 2), ("feb", 2), ("march", 3), ("mar", 3),
             ("april", 4), ("apr", 4), ("may", 5), ("june", 6), ("jun", 6), ("july", 7), ("jul", 7),
@@ -673,28 +671,27 @@ Return ONLY valid JSON, no other text:
         ];
 
         for (month_name, month_num) in month_patterns {
-            let patterns = vec![
-                format!("from {}", month_name),
-                format!("in {}", month_name),
-                format!("during {}", month_name),
-                format!("{}", month_name),
-            ];
+            let escaped = regex::escape(month_name);
+            let word_boundary_re = regex::Regex::new(&format!(
+                r"(?i)(?:\bfrom\s+{}|\bin\s+{}|\bduring\s+{}|\b{})\b",
+                &escaped, &escaped, &escaped, &escaped
+            )).ok();
 
-            for pattern in &patterns {
-                if query_lower.contains(pattern) {
-                    // Check if year is specified with month (e.g., "December 2023")
-                    let month_year_pattern = regex::Regex::new(
-                        &format!(r"{}\s+(\d{{4}})", regex::escape(month_name))
-                    ).ok();
-                    
-                    let year = if let Some(ref my_re) = month_year_pattern {
-                        if let Some(caps) = my_re.captures(&query_lower) {
-                            if let Ok(y) = caps.get(1)?.as_str().parse::<i32>() {
-                                if y >= 2000 && y <= 2100 {
-                                    Some(y)
-                                } else {
-                                    Some(current_year)
-                                }
+            if let Some(ref re) = word_boundary_re {
+                if !re.is_match(&query_lower) {
+                    continue;
+                }
+
+                // Check if year is specified with month (e.g., "December 2023")
+                let month_year_pattern = regex::Regex::new(
+                    &format!(r"(?i)\b{}\s+(\d{{4}})\b", regex::escape(month_name))
+                ).ok();
+
+                let year = if let Some(ref my_re) = month_year_pattern {
+                    if let Some(caps) = my_re.captures(&query_lower) {
+                        if let Ok(y) = caps.get(1)?.as_str().parse::<i32>() {
+                            if y >= 2000 && y <= 2100 {
+                                Some(y)
                             } else {
                                 Some(current_year)
                             }
@@ -703,46 +700,46 @@ Return ONLY valid JSON, no other text:
                         }
                     } else {
                         Some(current_year)
-                    };
-                    
-                    // Check if this is a future date
-                    let is_future = Self::is_future_date(Some(month_num), year);
-                    
-                    // Only set future dates if explicitly mentioned (which they are, since we matched the pattern)
-                    // But still validate and cap to current date if needed
-                    if !is_future || (is_future && Self::query_mentions_month(query, month_name)) {
-                        date_range.month = Some(month_num);
-                        date_range.year = year;
-                        
-                        // Calculate start and end timestamps for the month
-                        let year_val = year.unwrap_or(current_year);
-                        let now_ts = now.timestamp();
-                        
-                        if let Some(start_date) = NaiveDate::from_ymd_opt(year_val, month_num, 1) {
-                            if let Some(start_naive) = start_date.and_hms_opt(0, 0, 0) {
-                                if let Some(start_dt) = Local.from_local_datetime(&start_naive).single() {
-                                    let start_ts = start_dt.timestamp();
-                                    
-                                    // Calculate end of month
-                                    let next_month = if month_num == 12 {
-                                        NaiveDate::from_ymd_opt(year_val + 1, 1, 1)
-                                    } else {
-                                        NaiveDate::from_ymd_opt(year_val, month_num + 1, 1)
-                                    };
-                                    
-                                    let end_ts = if let Some(next) = next_month {
-                                        if let Some(last_day) = next.pred_opt() {
-                                            if let Some(end_naive) = last_day.and_hms_opt(23, 59, 59) {
-                                                if let Some(end_dt) = Local.from_local_datetime(&end_naive).single() {
-                                                    let ts = end_dt.timestamp();
-                                                    // Cap to current date if future
-                                                    if ts > now_ts {
-                                                        now_ts
-                                                    } else {
-                                                        ts
-                                                    }
-                                                } else {
+                    }
+                } else {
+                    Some(current_year)
+                };
+
+                // Check if this is a future date
+                let is_future = Self::is_future_date(Some(month_num), year);
+
+                // Only set future dates if explicitly mentioned (which they are, since we matched the pattern)
+                // But still validate and cap to current date if needed
+                if !is_future || (is_future && Self::query_mentions_month(query, month_name)) {
+                    date_range.month = Some(month_num);
+                    date_range.year = year;
+
+                    // Calculate start and end timestamps for the month
+                    let year_val = year.unwrap_or(current_year);
+                    let now_ts = now.timestamp();
+
+                    if let Some(start_date) = NaiveDate::from_ymd_opt(year_val, month_num, 1) {
+                        if let Some(start_naive) = start_date.and_hms_opt(0, 0, 0) {
+                            if let Some(start_dt) = Local.from_local_datetime(&start_naive).single() {
+                                let start_ts = start_dt.timestamp();
+
+                                // Calculate end of month
+                                let next_month = if month_num == 12 {
+                                    NaiveDate::from_ymd_opt(year_val + 1, 1, 1)
+                                } else {
+                                    NaiveDate::from_ymd_opt(year_val, month_num + 1, 1)
+                                };
+
+                                let end_ts = if let Some(next) = next_month {
+                                    if let Some(last_day) = next.pred_opt() {
+                                        if let Some(end_naive) = last_day.and_hms_opt(23, 59, 59) {
+                                            if let Some(end_dt) = Local.from_local_datetime(&end_naive).single() {
+                                                let ts = end_dt.timestamp();
+                                                // Cap to current date if future
+                                                if ts > now_ts {
                                                     now_ts
+                                                } else {
+                                                    ts
                                                 }
                                             } else {
                                                 now_ts
@@ -752,33 +749,32 @@ Return ONLY valid JSON, no other text:
                                         }
                                     } else {
                                         now_ts
-                                    };
-                                    
-                                    // Only set if start is not in future (unless explicitly mentioned)
-                                    if start_ts <= now_ts || is_future {
-                                        date_range.start = Some(start_ts);
-                                        date_range.end = Some(end_ts);
-                                        eprintln!("[DATE_FILTER] extract_date_filters: Setting month={}, year={}, start={}, end={}", 
-                                                month_num, year_val, start_ts, end_ts);
-                                    } else {
-                                        eprintln!("[DATE_FILTER] extract_date_filters: Skipping future month={}, year={}", 
-                                                month_num, year_val);
                                     }
+                                } else {
+                                    now_ts
+                                };
+
+                                // Only set if start is not in future (unless explicitly mentioned)
+                                if start_ts <= now_ts || is_future {
+                                    date_range.start = Some(start_ts);
+                                    date_range.end = Some(end_ts);
+                                    eprintln!("[DATE_FILTER] extract_date_filters: Setting month={}, year={}, start={}, end={}",
+                                            month_num, year_val, start_ts, end_ts);
+                                } else {
+                                    eprintln!("[DATE_FILTER] extract_date_filters: Skipping future month={}, year={}",
+                                            month_num, year_val);
                                 }
                             }
                         }
-                    } else {
-                        eprintln!("[DATE_FILTER] extract_date_filters: Rejecting future date - month={}, year={:?}, not explicitly mentioned", 
-                                month_num, year);
                     }
-
-                    // Remove pattern from query
-                    cleaned_query = cleaned_query
-                        .replacen(pattern, "", 1)
-                        .trim()
-                        .to_string();
-                    break;
+                } else {
+                    eprintln!("[DATE_FILTER] extract_date_filters: Rejecting future date - month={}, year={:?}, not explicitly mentioned",
+                            month_num, year);
                 }
+
+                // Remove matched month phrase from query
+                cleaned_query = re.replace(&cleaned_query, "").trim().to_string();
+                break;
             }
         }
 

@@ -41,6 +41,17 @@ async fn main() -> anyhow::Result<()> {
         parser_registry,
         config.clone(),
     ));
+
+    // Start startup scan in background
+    let indexer_clone = indexer.clone();
+    tokio::spawn(async move {
+        // Wait a bit for server to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        if let Err(e) = indexer_clone.perform_startup_scan().await {
+            eprintln!("Startup scan failed: {}", e);
+        }
+    });
+
     
     // Initialize file watcher if auto_index is enabled
     let file_watcher = if config.auto_index && !config.indexed_directories.is_empty() {
@@ -91,6 +102,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/ai/gemini-models", get(api::ai::get_gemini_models))
         .route("/api/search/active-rag", post(api::active_rag::active_rag_search))
         .route("/api/test/image-embedding", get(api::test_image_embedding::test_image_embedding))
+        .route("/api/setup/status", get(api::setup::get_setup_status))
+        .route("/api/setup/pull", post(api::setup::pull_model))
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 

@@ -170,10 +170,18 @@ impl AppConfig {
     }
 
     pub fn update_model_for_mode(&mut self) {
-        self.embedding_model = match self.performance_mode {
-            PerformanceMode::Lightweight => "all-minilm".to_string(),
-            PerformanceMode::Normal => "embeddinggemma".to_string(),
-        };
+        match self.performance_mode {
+            PerformanceMode::Lightweight => {
+                self.embedding_model = "all-minilm".to_string();
+                self.max_context_tokens = 512;
+                self.chunk_size = 200; // Reduce chunk size (words) to fit in 512 tokens
+            },
+            PerformanceMode::Normal => {
+                self.embedding_model = "embeddinggemma".to_string();
+                self.max_context_tokens = 2048; // Gemma can handle more
+                self.chunk_size = 512;
+            },
+        }
     }
 
     pub fn set_performance_mode(&mut self, mode: PerformanceMode) {

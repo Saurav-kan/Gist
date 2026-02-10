@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "dev:backend": "cd ../rust-backend && cargo build --release && cd ../electron && npm run dev",
     "build": "electron-builder"
   },
   "keywords": [
@@ -25,6 +26,7 @@
   "build": {
     "appId": "com.nlpfileexplorer.app",
     "productName": "GIST Vector Search",
+    "icon": "src/icon.ico",
     "directories": {
       "output": "dist"
     },
@@ -33,13 +35,21 @@
       "node_modules/**/*"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "src/icon.ico"
     },
     "mac": {
       "target": "dmg"
     },
     "linux": {
       "target": "AppImage"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "../rust-backend/target/release/nlp-file-explorer-backend.exe",
+        "to": "bin/nlp-file-explorer-backend.exe",
+        "filter": ["**/*"]
+      }
+    ]
   }
 }

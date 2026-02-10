@@ -37,8 +37,14 @@ impl DocumentParser for PdfParser {
     }
 
     fn extract_text(&self, file_path: &str) -> Result<String> {
-        let text = pdf_extract::extract_text(file_path)?;
-        Ok(text)
+        let path = file_path.to_string();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pdf_extract::extract_text(&path)
+        })) {
+            Ok(Ok(text)) => Ok(text),
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => anyhow::bail!("PDF parsing failed (unsupported encoding or malformed file)"),
+        }
     }
 }
 

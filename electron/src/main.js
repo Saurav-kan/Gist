@@ -13,12 +13,14 @@ function createWindow() {
     height: 900,
     frame: false,
     titleBarStyle: 'hidden',
+    icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
       spellcheck: true // Enable built-in spell checker
     }
+
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -106,7 +108,54 @@ function createWindow() {
   }
 }
 
+const { spawn } = require('child_process');
+
+let backendProcess = null;
+
+function startBackend() {
+  const isDev = !app.isPackaged;
+  let backendPath;
+  
+  if (isDev) {
+    // In development, assume backend is in sibling directory
+    backendPath = path.join(__dirname, '../../rust-backend/target/release/nlp-file-explorer-backend.exe');
+  } else {
+    // In production, backend is in resources/bin
+    backendPath = path.join(process.resourcesPath, 'bin', 'nlp-file-explorer-backend.exe');
+  }
+  
+  console.log('Starting backend from:', backendPath);
+  
+  // Check if backend exists
+  fs.access(backendPath).then(() => {
+     backendProcess = spawn(backendPath, [], {
+      stdio: 'inherit',
+      windowsHide: true
+    });
+    
+    backendProcess.on('error', (err) => {
+      console.error('Failed to start backend:', err);
+    });
+    
+    backendProcess.on('exit', (code, signal) => {
+      console.log(`Backend exited with code ${code} and signal ${signal}`);
+    });
+  }).catch(err => {
+      console.error('Backend executable not found at:', backendPath);
+      console.error('Error:', err);
+  });
+}
+
+function stopBackend() {
+  if (backendProcess) {
+    console.log('Stopping backend...');
+    backendProcess.kill();
+    backendProcess = null;
+  }
+}
+
 app.whenReady().then(() => {
+  startBackend();
   createWindow();
 
   app.on('activate', () => {
@@ -114,6 +163,10 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on('will-quit', () => {
+  stopBackend();
 });
 
 app.on('window-all-closed', () => {

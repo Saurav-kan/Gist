@@ -1078,15 +1078,17 @@
               </div>
             </div>
             <div class="file-browser-content">
-              <div class="file-search-wrapper">
-                <input
-                  type="text"
-                  id="file-search-downloads"
-                  class="file-search-input"
-                  placeholder="Search files by name or content..."
-                />
+              <div class="file-browser-main-content">
+                <div class="file-search-wrapper">
+                  <input
+                    type="text"
+                    id="file-search-downloads"
+                    class="file-search-input"
+                    placeholder="Search files by name or content..."
+                  />
+                </div>
+                <div id="downloads-file-list" class="file-list-grid"></div>
               </div>
-              <div id="downloads-file-list" class="file-list-grid"></div>
             </div>
           </section>
 
@@ -1688,7 +1690,37 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/shell.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/markdown.min.js"></script>
+    <!-- Onboarding Modal -->
+    <div id="onboarding-modal" class="modal-overlay">
+      <div class="modal-content onboarding-content">
+        <div class="modal-header">
+          <h2>Welcome to GIST</h2>
+        </div>
+        <div class="modal-body">
+          <div class="onboarding-step">
+            <div class="step-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8V2z"></path>
+                <path d="M12 2a10 10 0 1 0 10 10H12V2z"></path>
+                <circle cx="12" cy="12" r="4"></circle>
+              </svg>
+            </div>
+            <h3>Setting up AI Engine</h3>
+            <p>We detected <strong><span id="onboarding-ram-text">-- GB</span></strong> of RAM.</p>
+            <p>Optimizing GIST for your system by downloading <strong><span id="onboarding-model-text">...</span></strong>.</p>
+            
+            <div id="onboarding-status" class="status-message">Ready to initialize.</div>
+            <div id="onboarding-spinner" class="spinner-large" style="display: none;"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="onboarding-start-btn" class="btn-primary" onclick="window.startOnboardingDownload()">Initialize & Download</button>
+        </div>
+      </div>
+    </div>
 
+    <!-- Scripts -->
+    <script src="onboarding.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
