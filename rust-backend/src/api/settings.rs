@@ -136,8 +136,16 @@ pub async fn update_settings(
                 // Remove directories that are no longer in the list
                 for old_dir in &old_dirs {
                     if !dirs.contains(old_dir) {
+                        // Stop watching
                         if let Err(e) = watcher.remove_directory(old_dir) {
                             eprintln!("Warning: Failed to remove directory {} from watcher: {}", old_dir, e);
+                        }
+                        
+                        // Remove from index/storage
+                        if let Err(e) = state.storage.remove_directory(old_dir).await {
+                             eprintln!("Warning: Failed to remove directory {} from index: {}", old_dir, e);
+                        } else {
+                            needs_reindex = true; 
                         }
                     }
                 }

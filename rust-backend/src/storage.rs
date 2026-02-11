@@ -354,6 +354,47 @@ impl Storage {
         &self.embeddings_path
     }
 
+    pub async fn remove_directory(&self, directory: &str) -> Result<usize> {
+        let db_path = self.db_path.clone();
+        let directory = directory.to_string();
+        
+        task::spawn_blocking(move || {
+            let conn = Connection::open(&db_path)?;
+            
+            // Normalize directory path to ensure consistent matching
+            // Ensure trailing slash for directory prefix matching
+            let mut dir_prefix = directory.clone();
+            if !dir_prefix.ends_with('/') && !dir_prefix.ends_with('\\') {
+                if dir_prefix.contains('\\') {
+                    dir_prefix.push('\\');
+                } else {
+                    dir_prefix.push('/');
+                }
+            }
+            
+            // Prepare pattern for SQL LIKE query
+            let pattern = format!("{}%", dir_prefix);
+            
+            // Try exact match first
+            let mut count = conn.execute("DELETE FROM files WHERE file_path LIKE ?1", params![&pattern])?;
+            
+            // Also try alternate separator pattern
+            if count == 0 {
+                let alternate_prefix = if dir_prefix.contains('\\') {
+                    dir_prefix.replace('\\', "/")
+                } else {
+                    dir_prefix.replace('/', "\\")
+                };
+                let alternate_pattern = format!("{}%", alternate_prefix);
+                
+                count += conn.execute("DELETE FROM files WHERE file_path LIKE ?1", params![&alternate_pattern])?;
+            }
+            
+            println!("[STORAGE] Removed {} files from index for directory: {}", count, directory);
+            Ok::<usize, anyhow::Error>(count)
+        }).await?
+    }
+
     pub async fn clear_all(&self) -> Result<()> {
         // Delete all records from database
         let db_path = self.db_path.clone();

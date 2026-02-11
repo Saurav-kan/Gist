@@ -611,12 +611,13 @@
                       Action Search - Query Parsing Provider
                     </label>
                     <select id="action-search-parsing-model" class="modern-select">
+                      <option value="skip">Skip Parsing (Faster, Use Query As-Is)</option>
                       <option value="ollama">Ollama (Local, Fast)</option>
                       <option value="gemini">Gemini (API, Accurate)</option>
                     </select>
                   </div>
                   <p class="setting-caption">
-                    Provider used for decomposing user queries into search terms and actions. When using Ollama/Gemini, the model comes from the AI Provider settings above.
+                    Provider used for decomposing user queries into search terms and actions. "Skip Parsing" is fastest and uses your query directly without AI decomposition.
                   </p>
                   
                   <div class="control-row" style="margin-top: 1rem;">
