@@ -109,9 +109,12 @@ pub async fn active_rag_search(
         };
 
         // Use decomposed vector_query for retrieval
+        // Search with higher limit to ensure relevant files aren't missed, then take top N for analysis
+        let analysis_limit = request.document_limit.unwrap_or(3);
+        let search_limit = (analysis_limit * 10).max(30); // Search 30+ files, analyze top 3
         let search_request = SearchRequest {
             query: decomposed.vector_query.clone(),
-            limit: request.document_limit.or(Some(3)),
+            limit: Some(search_limit),
             filters: None, // TODO: Apply AI-extracted filters if possible
         };
 
@@ -119,10 +122,10 @@ pub async fn active_rag_search(
         eprintln!("[Active RAG] Search query: '{}'", search_request.query);
         eprintln!("[Active RAG] Document limit: {:?}", search_request.limit);
         
-        let search_results: Vec<SearchResult> = match perform_vector_search(&state, &search_request).await {
+        let mut search_results: Vec<SearchResult> = match perform_vector_search(&state, &search_request).await {
             Ok(results) => {
                 eprintln!("[Active RAG] Vector search returned {} results", results.len());
-                for (i, result) in results.iter().enumerate() {
+                for (i, result) in results.iter().take(5).enumerate() {
                     eprintln!("[Active RAG]   Result {}: {} (score: {:.4})", 
                         i + 1, 
                         result.file_name, 
@@ -154,6 +157,10 @@ pub async fn active_rag_search(
                 error: Some("No search results found to analyze".to_string()),
             };
         }
+
+        // Take only top N for AI analysis (we searched more to ensure relevance)
+        search_results.truncate(analysis_limit);
+        eprintln!("[Active RAG] Taking top {} documents for AI analysis", search_results.len());
 
         // Extract content from top documents
         eprintln!("[Active RAG] Extracting content from {} documents...", search_results.len());
@@ -285,7 +292,7 @@ async fn perform_vector_search(
     let hnsw_guard = state.hnsw_index.read().await;
     if let Some(ref hnsw) = *hnsw_guard {
         if hnsw.len() > 0 {
-            let candidate_count = (limit * 10).max(50); // Enough candidates for re-scoring
+            let candidate_count = (limit * 50).max(100); // Match regular search: get many candidates for hybrid scoring
             if let Ok(hnsw_results) = hnsw.search(query_embedding.clone(), candidate_count) {
                 eprintln!("[Vector Search] HNSW returned {} candidates", hnsw_results.len());
                 results = score_search_results(query, hnsw_results);
@@ -304,12 +311,22 @@ async fn perform_vector_search(
                 (metadata, vector_sim)
             })
             .collect();
+        eprintln!("[Vector Search] Raw results before scoring: {}", raw_results.len());
         results = score_search_results(query, raw_results);
+        eprintln!("[Vector Search] Results after hybrid scoring: {}", results.len());
+        if results.len() > 0 {
+            eprintln!("[Vector Search] Top 5 after scoring: {:?}", 
+                results.iter().take(5).map(|(m, s)| (m.file_name.clone(), *s)).collect::<Vec<_>>());
+        }
     }
 
     if state.config.filter_duplicate_files {
         results = deduplicate_by_embedding(results, state).await;
+        eprintln!("[Vector Search] Results after deduplication: {}", results.len());
     }
+
+    // Re-sort after deduplication (dedup can change order)
+    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let search_results: Vec<SearchResult> = results
         .into_iter()
