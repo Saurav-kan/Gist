@@ -67,7 +67,7 @@ fn default_action_search_analysis_model() -> String {
 }
 
 fn default_max_context_tokens() -> usize {
-    1500 // Safe default for most Ollama embedding models
+    1800 // Stay under 2K embedding context to prevent context length errors
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -101,7 +101,7 @@ impl Default for AppConfig {
                 excluded_extensions: Vec::new(),
             },
             chunk_size: 512,
-            max_context_tokens: 1500,
+            max_context_tokens: 1800,
             auto_index: true,
             max_search_results: 100,
             filter_duplicate_files: true,
@@ -178,7 +178,7 @@ impl AppConfig {
             },
             PerformanceMode::Normal => {
                 self.embedding_model = "embeddinggemma".to_string();
-                self.max_context_tokens = 2048; // Gemma can handle more
+                self.max_context_tokens = 1800; // Stay under 2K embedding context
                 self.chunk_size = 512;
             },
         }

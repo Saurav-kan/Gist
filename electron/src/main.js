@@ -224,6 +224,19 @@ ipcMain.handle('api-request', async (event, { method, endpoint, data }) => {
   }
 });
 
+// Show message box (for unsaved settings prompt, etc.)
+ipcMain.handle('show-message-box', async (event, { message, buttons }) => {
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'question',
+    title: 'Unsaved Changes',
+    message,
+    buttons: buttons || ['Save', 'Don\'t Save', 'Cancel'],
+    defaultId: 0,
+    cancelId: 2,
+  });
+  return result.response;
+});
+
 // Directory selection handler
 ipcMain.handle('select-directory', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {

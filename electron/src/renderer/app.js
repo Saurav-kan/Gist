@@ -14,10 +14,66 @@ if (maximizeBtn)
 if (closeBtn)
   closeBtn.addEventListener("click", () => window.electronAPI.windowClose());
 
+// Unsaved settings tracking
+let settingsDirty = false;
+
+function markSettingsDirty() {
+  settingsDirty = true;
+}
+
+function clearSettingsDirty() {
+  settingsDirty = false;
+}
+
+// Mark settings dirty when any setting is changed
+document.addEventListener("change", (e) => {
+  const settingsPage = document.getElementById("indexing-page");
+  if (settingsPage && settingsPage.contains(e.target)) {
+    if (e.target.id !== "save-settings") markSettingsDirty();
+  }
+});
+document.addEventListener("input", (e) => {
+  const settingsPage = document.getElementById("indexing-page");
+  if (settingsPage && settingsPage.contains(e.target)) {
+    markSettingsDirty();
+  }
+});
+
+async function confirmNavigateAwayFromSettings() {
+  const currentPage = document.querySelector(".page.active");
+  const isOnSettings = currentPage && currentPage.id === "indexing-page";
+  if (!isOnSettings || !settingsDirty) return true;
+  const result = await window.electronAPI?.showMessageBox?.(
+    "You have unsaved changes. Do you want to save before leaving?",
+    ["Save", "Don't Save", "Cancel"],
+  );
+  if (result === 2) return false; // Cancel
+  if (result === 0) {
+    const saveBtn = document.getElementById("save-settings");
+    if (saveBtn && !saveBtn.disabled) {
+      saveBtn.click();
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+  }
+  clearSettingsDirty();
+  return true;
+}
+
 // Sidebar Navigation
 document.querySelectorAll(".nav-item").forEach((item) => {
-  item.addEventListener("click", () => {
+  item.addEventListener("click", async () => {
     const page = item.dataset.page;
+
+    const targetPageEl = document.getElementById(`${page}-page`);
+    const currentPage = document.querySelector(".page.active");
+    if (
+      currentPage?.id === "indexing-page" &&
+      targetPageEl &&
+      targetPageEl.id !== "indexing-page"
+    ) {
+      const proceed = await confirmNavigateAwayFromSettings();
+      if (!proceed) return;
+    }
 
     // Close preview panel when switching tabs
     closePreviewPanel();
@@ -32,9 +88,8 @@ document.querySelectorAll(".nav-item").forEach((item) => {
     document
       .querySelectorAll(".page")
       .forEach((p) => p.classList.remove("active"));
-    const targetPage = document.getElementById(`${page}-page`);
-    if (targetPage) {
-      targetPage.classList.add("active");
+    if (targetPageEl) {
+      targetPageEl.classList.add("active");
     }
 
     // Update breadcrumb
@@ -55,7 +110,6 @@ document.querySelectorAll(".nav-item").forEach((item) => {
       page === "documents" ||
       page === "other-files"
     ) {
-      // Load folder page - ensure special folders are loaded first
       if (Object.keys(specialFolders).length === 0) {
         loadSpecialFolders().then(() => loadFolderPage(page));
       } else {
@@ -265,7 +319,7 @@ document.addEventListener("click", (e) => {
 // Similarity Slider
 const similaritySlider = document.getElementById("similarity-slider");
 const similarityValue = document.getElementById("similarity-value");
-let similarityThreshold = 30; // Lower default threshold for better results
+let similarityThreshold = 25; // Default recall threshold
 
 if (similaritySlider) {
   similaritySlider.addEventListener("input", (e) => {
@@ -1793,6 +1847,7 @@ async function loadSettings() {
         if (aiSettingsContainer) {
           aiSettingsContainer.style.display = aiEnabled ? "block" : "none";
         }
+        updateActionSearchVisibility(aiEnabled);
       }
 
       if (aiProviderSelect && settings.ai_provider) {
@@ -1832,18 +1887,12 @@ async function loadSettings() {
         analysisModelSelect.value = settings.action_search_analysis_model;
       }
 
-      // Load excluded extensions
-      const excludedInput = document.getElementById(
-        "excluded-extensions-input",
+      // Load excluded extensions (render as chips)
+      renderExcludedExtensionsChips(
+        settings.file_type_filters?.excluded_extensions || [],
       );
-      if (
-        excludedInput &&
-        settings.file_type_filters &&
-        settings.file_type_filters.excluded_extensions
-      ) {
-        excludedInput.value =
-          settings.file_type_filters.excluded_extensions.join(", ");
-      }
+
+      clearSettingsDirty();
     }
   } catch (error) {
     console.error("Failed to load settings:", error);
@@ -1954,6 +2003,7 @@ document.querySelectorAll(".model-card").forEach((card) => {
         .querySelectorAll(".model-card")
         .forEach((c) => c.classList.remove("active"));
       card.classList.add("active");
+      markSettingsDirty();
     }
   });
 });
@@ -2084,6 +2134,64 @@ if (maxResultsSlider && maxResultsValue) {
   });
 }
 
+// Normalize extension: "mca" or ".mca" -> "mca" (lowercase, no leading dot)
+function normalizeExtension(ext) {
+  return (ext || "").trim().toLowerCase().replace(/^\.+/, "") || null;
+}
+
+// Excluded extensions chip UI
+function getExcludedExtensionsFromChips() {
+  const chipsContainer = document.getElementById("excluded-extensions-chips");
+  if (!chipsContainer) return [];
+  return Array.from(chipsContainer.querySelectorAll(".excluded-extension-chip"))
+    .map((chip) => normalizeExtension(chip.dataset.extension))
+    .filter(Boolean);
+}
+
+function renderExcludedExtensionsChips(extensions) {
+  const container = document.getElementById("excluded-extensions-chips");
+  const input = document.getElementById("excluded-extensions-input");
+  if (!container) return;
+  container.innerHTML = (extensions || []).map((ext) => {
+    const normalized = normalizeExtension(ext);
+    if (!normalized) return "";
+    const safe = escapeHtml(normalized);
+    return `<span class="excluded-extension-chip" data-extension="${safe}">${safe}<button type="button" class="excluded-extension-chip-remove" title="Remove">&times;</button></span>`;
+  }).filter(Boolean).join("");
+  if (input) input.value = "";
+  container.querySelectorAll(".excluded-extension-chip-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const chip = btn.closest(".excluded-extension-chip");
+      if (chip) chip.remove();
+      if (typeof markSettingsDirty === "function") markSettingsDirty();
+    });
+  });
+}
+
+function addExcludedExtensionFromInput() {
+  const input = document.getElementById("excluded-extensions-input");
+  if (!input) return;
+  const raw = input.value.trim();
+  if (!raw) return;
+  const parts = raw.split(/[\s,]+/).map((p) => normalizeExtension(p)).filter(Boolean);
+  if (parts.length === 0) return;
+  const current = getExcludedExtensionsFromChips();
+  const toAdd = parts.filter((p) => !current.includes(p));
+  if (toAdd.length > 0) {
+    renderExcludedExtensionsChips([...current, ...toAdd]);
+    if (typeof markSettingsDirty === "function") markSettingsDirty();
+  }
+  input.value = "";
+}
+
+// Update action search toggle visibility based on AI features enabled
+function updateActionSearchVisibility(aiEnabled) {
+  const actionSearchToggle = document.querySelector(".action-search-toggle");
+  if (actionSearchToggle) {
+    actionSearchToggle.style.display = aiEnabled ? "flex" : "none";
+  }
+}
+
 // Set up AI settings UI handlers
 const aiEnabledCheckbox = document.getElementById("ai-features-enabled");
 if (aiEnabledCheckbox) {
@@ -2094,6 +2202,7 @@ if (aiEnabledCheckbox) {
     if (aiSettingsContainer) {
       aiSettingsContainer.style.display = e.target.checked ? "block" : "none";
     }
+    updateActionSearchVisibility(e.target.checked);
   });
 }
 
@@ -2102,6 +2211,21 @@ if (aiProviderSelect) {
   aiProviderSelect.addEventListener("change", (e) => {
     updateAiProviderUI(e.target.value);
   });
+}
+
+// Excluded extensions: Enter to add, Add button
+const excludedExtInput = document.getElementById("excluded-extensions-input");
+const excludedExtAddBtn = document.getElementById("excluded-extensions-add-btn");
+if (excludedExtInput) {
+  excludedExtInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addExcludedExtensionFromInput();
+    }
+  });
+}
+if (excludedExtAddBtn) {
+  excludedExtAddBtn.addEventListener("click", addExcludedExtensionFromInput);
 }
 
 const saveSettingsBtn = document.getElementById("save-settings");
@@ -2162,14 +2286,8 @@ if (saveSettingsBtn) {
       ? filterDuplicateCheckbox.checked
       : true;
 
-    // Get excluded extensions
-    const excludedInput = document.getElementById("excluded-extensions-input");
-    const excludedExtensions = excludedInput
-      ? excludedInput.value
-          .split(",")
-          .map((ext) => ext.trim().toLowerCase())
-          .filter((ext) => ext.length > 0)
-      : [];
+    // Get excluded extensions from chips
+    const excludedExtensions = getExcludedExtensionsFromChips();
 
     // Disable save button and show loading state
     saveSettingsBtn.disabled = true;
@@ -2242,6 +2360,7 @@ if (saveSettingsBtn) {
       );
 
       if (response.success) {
+        clearSettingsDirty();
         // Show success message
         if (messageDiv) {
           messageDiv.textContent = "✓ Settings saved successfully!";
@@ -2463,12 +2582,14 @@ let selectedBrowserItem = null;
 let specialFolders = {};
 
 // Sort settings per page
-// Sort settings per page
 let sortSettings = {
   desktop: { sort: "date_modified", order: "desc" },
   downloads: { sort: "date_modified", order: "desc" },
   documents: { sort: "date_modified", order: "desc" },
 };
+
+// Folder navigation history per page (for back button)
+let folderHistory = {};
 
 // Load sort settings from localStorage
 function loadSortSettings() {
@@ -2726,10 +2847,44 @@ async function loadFolderPage(pageType) {
   }
 
   if (folderPath && fileListId) {
+    // Initialize folder history for back navigation
+    folderHistory[fileListId] = [folderPath];
+    updateFolderBackButton(fileListId);
     // Check if there's a search query for this page
     const searchInput = document.getElementById(`file-search-${pageType}`);
     const searchQuery = searchInput ? searchInput.value.trim() : null;
     await loadFolderFiles(folderPath, fileListId, pageType, searchQuery);
+  }
+}
+
+// Update back button visibility based on folder history
+function updateFolderBackButton(fileListId) {
+  const history = folderHistory[fileListId] || [];
+  const backBtn = document.querySelector(
+    `.folder-back-btn[data-file-list="${fileListId}"]`,
+  );
+  if (backBtn) {
+    backBtn.style.display = history.length > 1 ? "flex" : "none";
+  }
+}
+
+// Handle folder back button click
+async function handleFolderBack(fileListId, pageType) {
+  const history = folderHistory[fileListId];
+  if (!history || history.length <= 1) return;
+  history.pop();
+  const prevPath = history[history.length - 1];
+  updateFolderBackButton(fileListId);
+  const searchInput = document.getElementById(`file-search-${pageType}`);
+  const searchQuery = searchInput ? searchInput.value.trim() : null;
+  await loadFolderFiles(prevPath, fileListId, pageType, searchQuery);
+  const currentFolder = document.getElementById("current-folder");
+  if (currentFolder) {
+    const folderName =
+      prevPath === "::this-pc"
+        ? "This PC"
+        : prevPath.split(/[\\/]/).pop() || prevPath;
+    currentFolder.textContent = folderName;
   }
 }
 
@@ -2806,6 +2961,23 @@ function displayFolderFiles(items, fileListId) {
   if (items.length === 0) {
     fileList.innerHTML =
       '<div class="empty-state"><h3>Folder is empty</h3></div>';
+    const currentPath = folderHistory[fileListId]?.[folderHistory[fileListId].length - 1];
+    if (currentPath && currentPath !== "::this-pc") {
+      if (!fileList.dataset.folderContextBound) {
+        fileList.dataset.folderContextBound = "1";
+        const pageType = fileListId.replace("-file-list", "");
+        fileList.addEventListener("contextmenu", function onEmptyContext(e) {
+          if (e.target.closest(".file-item")) return;
+          e.preventDefault();
+          const path = folderHistory[fileListId]?.[folderHistory[fileListId].length - 1];
+          if (!path || path === "::this-pc") return;
+          showFileContextMenu(e, {
+            currentFolderPath: path,
+            onRefresh: () => loadFolderFiles(path, fileListId, pageType),
+          });
+        });
+      }
+    }
     return;
   }
 
@@ -2888,31 +3060,23 @@ function displayFolderFiles(items, fileListId) {
 
       if (isDir) {
         // Double click on folder: navigate into folder
-        // Get current folder path from the page context
-        const currentPage = document.querySelector(".page.active");
-        let currentFolderPath = null;
-
-        if (currentPage) {
-          const pageId = currentPage.id;
-          if (pageId === "desktop-page" && specialFolders.desktop) {
-            currentFolderPath = specialFolders.desktop;
-          } else if (pageId === "downloads-page" && specialFolders.downloads) {
-            currentFolderPath = specialFolders.downloads;
-          } else if (pageId === "documents-page" && specialFolders.documents) {
-            currentFolderPath = specialFolders.documents;
-          } else if (pageId === "other-files-page" && specialFolders.home) {
-            currentFolderPath = specialFolders.home;
-          }
-        }
-
-        // Navigate to the folder (pass pageType for sort settings)
         const pageType = fileListId.replace("-file-list", "");
+        // Push to folder history for back navigation
+        if (!folderHistory[fileListId]) {
+          folderHistory[fileListId] = [];
+        }
+        folderHistory[fileListId].push(filePath);
+        updateFolderBackButton(fileListId);
+
         await loadFolderFiles(filePath, fileListId, pageType);
 
         // Update breadcrumb
         const currentFolder = document.getElementById("current-folder");
         if (currentFolder) {
-          const folderName = filePath.split(/[\\/]/).pop();
+          const folderName =
+            filePath === "::this-pc"
+              ? "This PC"
+              : filePath.split(/[\\/]/).pop() || filePath;
           currentFolder.textContent = folderName;
         }
       } else {
@@ -2920,7 +3084,152 @@ function displayFolderFiles(items, fileListId) {
         await openFile(filePath);
       }
     });
+
+    item.addEventListener("contextmenu", (e) => {
+      const currentPath = folderHistory[fileListId]?.[folderHistory[fileListId].length - 1];
+      const pageType = fileListId.replace("-file-list", "");
+      showFileContextMenu(e, {
+        filePath: item.dataset.path,
+        isDirectory: item.dataset.isDir === "true",
+        currentFolderPath: currentPath,
+        onRefresh: () =>
+          loadFolderFiles(currentPath, fileListId, pageType),
+      });
+    });
   });
+
+  if (!fileList.dataset.folderContextBound) {
+    fileList.dataset.folderContextBound = "1";
+    const pageType = fileListId.replace("-file-list", "");
+    fileList.addEventListener("contextmenu", (e) => {
+      if (e.target.closest(".file-item")) return;
+      const currentPath = folderHistory[fileListId]?.[folderHistory[fileListId].length - 1];
+      if (!currentPath || currentPath === "::this-pc") return;
+      e.preventDefault();
+      showFileContextMenu(e, {
+        currentFolderPath: currentPath,
+        onRefresh: () => loadFolderFiles(currentPath, fileListId, pageType),
+      });
+    });
+  }
+}
+
+// File context menu - shared by folder pages and browser
+function closeFileContextMenu() {
+  const existing = document.querySelector(".file-context-menu");
+  if (existing) existing.remove();
+  document.removeEventListener("click", closeFileContextMenu);
+}
+
+function showFileContextMenu(event, options) {
+  event.preventDefault();
+  event.stopPropagation();
+  closeFileContextMenu();
+
+  const { filePath, isDirectory, currentFolderPath, onRefresh } = options;
+  const canNewFolder =
+    currentFolderPath && currentFolderPath !== "::this-pc";
+
+  const menu = document.createElement("div");
+  menu.className = "file-context-menu";
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
+
+  const items = [];
+  if (filePath) {
+    items.push({
+      label: "Open in Explorer",
+      action: () => window.electronAPI.showInFolder(filePath),
+    });
+    if (canNewFolder) items.push({ type: "separator" });
+  }
+  if (canNewFolder) {
+    items.push({
+      label: "New Folder",
+      action: async () => {
+        const name = prompt("Enter folder name:");
+        if (!name) return;
+        const parentPath = filePath
+          ? filePath.split(/[\\/]/).slice(0, -1).join(filePath.includes("\\") ? "\\" : "/") || currentFolderPath
+          : currentFolderPath;
+        const response = await window.electronAPI.apiRequest("POST", "/api/files/create-folder", {
+          path: parentPath,
+          name,
+        });
+        if (response.success) {
+          showToast("Folder created", "success");
+          onRefresh?.();
+        } else {
+          showToast("Failed to create folder: " + (response.error || "Unknown error"), "error");
+        }
+      },
+    });
+  }
+  if (filePath) {
+    if (items.length) items.push({ type: "separator" });
+    items.push({
+      label: "Rename",
+      action: async () => {
+        const oldName = filePath.split(/[\\/]/).pop();
+        const newName = prompt("Enter new name:", oldName);
+        if (!newName || newName === oldName) return;
+        const response = await window.electronAPI.apiRequest("PUT", "/api/files/rename", {
+          path: filePath,
+          new_name: newName,
+        });
+        if (response.success) {
+          showToast("Renamed", "success");
+          onRefresh?.();
+        } else {
+          showToast("Failed to rename: " + (response.error || "Unknown error"), "error");
+        }
+      },
+    });
+    items.push({
+      label: "Delete",
+      action: async () => {
+        const itemName = filePath.split(/[\\/]/).pop();
+        const confirmMsg = isDirectory
+          ? `Delete folder "${itemName}" and all its contents?`
+          : `Delete file "${itemName}"?`;
+        if (!confirm(confirmMsg)) return;
+        const response = await window.electronAPI.apiRequest("POST", "/api/files/delete", {
+          path: filePath,
+        });
+        if (response.success) {
+          showToast("Deleted", "success");
+          onRefresh?.();
+        } else {
+          showToast("Failed to delete: " + (response.error || "Unknown error"), "error");
+        }
+      },
+    });
+  }
+
+  items.forEach((item) => {
+    if (item.type === "separator") {
+      const sep = document.createElement("div");
+      sep.className = "context-menu-separator";
+      menu.appendChild(sep);
+    } else {
+      const btn = document.createElement("button");
+      btn.className = "context-menu-item";
+      btn.textContent = item.label;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeFileContextMenu();
+        item.action();
+      });
+      menu.appendChild(btn);
+    }
+  });
+
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = `${event.clientX - rect.width}px`;
+  if (rect.bottom > window.innerHeight) menu.style.top = `${event.clientY - rect.height}px`;
+
+  setTimeout(() => document.addEventListener("click", closeFileContextMenu), 0);
 }
 
 // Apply view preferences to a specific element
@@ -2974,6 +3283,18 @@ function displayBrowserItems(items) {
   if (items.length === 0) {
     fileList.innerHTML =
       '<div class="empty-state"><h3>Folder is empty</h3></div>';
+    if (!fileList.dataset.browserCtxBound) {
+      fileList.dataset.browserCtxBound = "1";
+      fileList.addEventListener("contextmenu", (e) => {
+        if (e.target.closest(".browser-file-item")) return;
+        if (!currentBrowserPath || currentBrowserPath === "::this-pc") return;
+        e.preventDefault();
+        showFileContextMenu(e, {
+          currentFolderPath: currentBrowserPath,
+          onRefresh: () => browseDirectory(currentBrowserPath),
+        });
+      });
+    }
     return;
   }
 
@@ -3022,7 +3343,29 @@ function displayBrowserItems(items) {
         browseDirectory(selectedBrowserItem.path);
       }
     });
+
+    item.addEventListener("contextmenu", (e) => {
+      showFileContextMenu(e, {
+        filePath: item.dataset.path,
+        isDirectory: item.dataset.isDir === "true",
+        currentFolderPath: currentBrowserPath,
+        onRefresh: () => browseDirectory(currentBrowserPath),
+      });
+    });
   });
+
+  if (!fileList.dataset.browserCtxBound) {
+    fileList.dataset.browserCtxBound = "1";
+    fileList.addEventListener("contextmenu", (e) => {
+      if (e.target.closest(".browser-file-item")) return;
+      if (!currentBrowserPath || currentBrowserPath === "::this-pc") return;
+      e.preventDefault();
+      showFileContextMenu(e, {
+        currentFolderPath: currentBrowserPath,
+        onRefresh: () => browseDirectory(currentBrowserPath),
+      });
+    });
+  }
 }
 
 function formatFileSize(bytes) {
@@ -3261,6 +3604,17 @@ if (treeViewToggle) {
 if (treeViewShowBtn) {
   treeViewShowBtn.addEventListener("click", toggleTreeView);
 }
+
+// Set up folder back buttons
+document.querySelectorAll(".folder-back-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const fileListId = btn.dataset.fileList;
+    const pageType = btn.dataset.pageType;
+    if (fileListId && pageType) {
+      await handleFolderBack(fileListId, pageType);
+    }
+  });
+});
 
 // Set up sort controls and search for each page
 ["desktop", "downloads", "documents"].forEach((pageType) => {

@@ -168,7 +168,11 @@ pub async fn update_settings(
             config.file_type_filters.include_xlsx = val;
         }
         if let Some(val) = filters.excluded_extensions {
-            config.file_type_filters.excluded_extensions = val;
+            config.file_type_filters.excluded_extensions = val
+                .into_iter()
+                .map(|e| e.trim_start_matches('.').to_lowercase())
+                .filter(|e| !e.is_empty())
+                .collect();
         }
     }
 

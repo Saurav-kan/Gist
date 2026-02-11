@@ -462,7 +462,8 @@ pub async fn search_files(
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_lowercase();
-                !state.config.file_type_filters.excluded_extensions.iter().any(|e| e.to_lowercase() == file_ext)
+                !state.config.file_type_filters.excluded_extensions.iter()
+                    .any(|e| e.trim_start_matches('.').to_lowercase() == file_ext)
             }).collect();
         }
     }
@@ -551,7 +552,7 @@ fn apply_filters(
                 }
             }
 
-            // Apply global file type exclusion
+            // Apply global file type exclusion (normalize: "mca" and ".mca" both match)
             if !excluded_extensions.is_empty() {
                 let file_ext = std::path::Path::new(&metadata.file_path)
                     .extension()
@@ -559,7 +560,8 @@ fn apply_filters(
                     .unwrap_or("")
                     .to_lowercase();
                 
-                if excluded_extensions.iter().any(|e| e.to_lowercase() == file_ext) {
+                if excluded_extensions.iter()
+                    .any(|e| e.trim_start_matches('.').to_lowercase() == file_ext) {
                     return false;
                 }
             }

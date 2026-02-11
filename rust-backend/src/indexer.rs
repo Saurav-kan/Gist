@@ -67,7 +67,7 @@ impl Indexer {
         {
             if entry.file_type().is_file() {
                 let file_path = entry.path().to_string_lossy().to_string();
-                if !Self::should_exclude_file(&file_path) {
+                if !Self::should_exclude_file(&file_path) && !self.is_excluded_by_config(&file_path) {
                     // Count files that will be indexed (either metadata-only or content-indexed)
                     if Self::should_index_metadata_only(&file_path) || self.parser_registry.can_parse(&file_path) {
                         total_files += 1;
@@ -106,6 +106,10 @@ impl Indexer {
                 
                 // Skip files that tend to give false positives
                 if Self::should_exclude_file(&file_path) {
+                    continue;
+                }
+                // Skip files in user's excluded extensions list (applies to both indexing and search)
+                if self.is_excluded_by_config(&file_path) {
                     continue;
                 }
                 
@@ -368,11 +372,13 @@ impl Indexer {
                 let error_msg = e.to_string();
                 // Match "500 Internal" strictly, or "context length"
                 if error_msg.contains("500") || error_msg.contains("context length") || error_msg.contains("Internal Server Error") {
-                    println!("[INDEXING] Context length error for '{}', trying 50% truncation ({} chars)", file_name, text.len() / 2);
+                    let original_len = text.len();
+                    let half_len = original_len / 2;
+                    println!("[INDEXING] Context length error for '{}' | original input: {} chars | trying 50% truncation: {} chars", file_name, original_len, half_len);
                     
-                    let half_len = text.len() / 2;
                     // Ensure we don't slice in the middle of a char
                     let truncated: String = text.chars().take(half_len).collect();
+                    let truncated_len = truncated.len();
                     
                     if half_len < 10 {
                          return Err(e); // Stop if too small
@@ -380,11 +386,12 @@ impl Indexer {
 
                      match self.embedding_service.generate_embedding(&truncated).await {
                          Ok(emb) => Ok(emb),
-                         Err(e2) => {
+                         Err(_e2) => {
                              // Try one more time at 25%?
-                             println!("[INDEXING] Context length error again for '{}', trying 25% truncation...", file_name);
                              let quarter_len = text.len() / 4;
                              let truncated_q: String = text.chars().take(quarter_len).collect();
+                             let quarter_actual = truncated_q.len();
+                             println!("[INDEXING] Context length error again for '{}' | 50% input was {} chars | trying 25% truncation: {} chars", file_name, truncated_len, quarter_actual);
                              self.embedding_service.generate_embedding(&truncated_q).await
                          }
                      }
@@ -475,55 +482,97 @@ impl Indexer {
     }
 
     /// Create multiple embedding sections for very large files (>4x context size)
-    /// Uses logarithmic scaling (log2(ratio + 1)) to prevent excessive embeddings for extremely large files
+    /// Uses log-based scaling to limit embeddings, then samples from each region.
     fn create_multiple_embedding_sections(chunks: &[String], max_tokens: usize) -> Vec<String> {
         if chunks.is_empty() {
             return vec![String::new()];
         }
         
-        // Calculate total tokens and ratio
+        // Log scaling: limits number of sections for large files
         let total_tokens: usize = chunks.iter().map(|c| c.len() / 4).sum();
         let ratio = total_tokens as f64 / max_tokens as f64;
+        let num_sections = ((ratio + 1.0).log2().ceil() as usize).max(2).min(16);
         
-        // Logarithmic scaling: log2(ratio + 1)
-        // This prevents excessive embeddings for extremely large files
-        let num_sections = ((ratio + 1.0).log2().ceil() as usize).max(1);
+        // ~4 chars per token; safety margin to stay under context limit
+        let max_chars_per_section = (max_tokens * 4).saturating_sub(64);
         
-        // If file fits in one section, return single section
-        if num_sections == 1 {
-            return vec![chunks.join("\n\n")];
-        }
-        
-        // Divide chunks into sections with overlap
+        let chunks_per_region = chunks.len() / num_sections;
         let mut sections = Vec::new();
-        let chunks_per_section = chunks.len() / num_sections;
-        let overlap_chunks = (chunks_per_section as f64 * 0.2) as usize; // 20% overlap
         
         for i in 0..num_sections {
-            let start_idx = if i == 0 {
-                0
-            } else {
-                (i * chunks_per_section).saturating_sub(overlap_chunks)
-            };
-            
-            let end_idx = if i == num_sections - 1 {
+            let start = i * chunks_per_region;
+            let end = if i == num_sections - 1 {
                 chunks.len()
             } else {
-                ((i + 1) * chunks_per_section).min(chunks.len())
+                ((i + 1) * chunks_per_region).min(chunks.len())
             };
             
-            if start_idx < end_idx && start_idx < chunks.len() {
-                let section_chunks: Vec<String> = chunks[start_idx..end_idx].to_vec();
-                sections.push(section_chunks.join("\n\n"));
+            if start >= end {
+                continue;
+            }
+            
+            let region_chunks = &chunks[start..end];
+            let section_text = Self::sample_region_for_embedding(region_chunks, max_chars_per_section);
+            if !section_text.is_empty() {
+                sections.push(section_text);
             }
         }
         
-        // Ensure we have at least one section
         if sections.is_empty() {
             sections.push(chunks.join("\n\n"));
         }
         
         sections
+    }
+
+    /// Sample chunks from a region (beginning, distributed middle, end) up to max_chars.
+    fn sample_region_for_embedding(region_chunks: &[String], max_chars: usize) -> String {
+        if region_chunks.is_empty() {
+            return String::new();
+        }
+        if region_chunks.len() == 1 {
+            let s = &region_chunks[0];
+            return s.chars().take(max_chars).collect();
+        }
+        
+        let mut selected = Vec::new();
+        let mut total_chars = 0;
+        
+        // First chunk
+        selected.push(region_chunks[0].as_str());
+        total_chars = region_chunks[0].len();
+        
+        // Sample from middle (evenly spaced)
+        if region_chunks.len() > 2 {
+            let middle_start = 1;
+            let middle_end = region_chunks.len() - 1;
+            let num_middle = (middle_end - middle_start).min(4);
+            let step = ((middle_end - middle_start) / num_middle.max(1)).max(1);
+            
+            for j in (middle_start..middle_end).step_by(step).take(num_middle) {
+                if total_chars + 2 + region_chunks[j].len() <= max_chars {
+                    selected.push(region_chunks[j].as_str());
+                    total_chars += 2 + region_chunks[j].len();
+                } else {
+                    break;
+                }
+            }
+        }
+        
+        // Last chunk (if different from first)
+        if region_chunks.len() > 1 {
+            let last = region_chunks.len() - 1;
+            if last != 0 && total_chars + 2 + region_chunks[last].len() <= max_chars {
+                selected.push(region_chunks[last].as_str());
+            }
+        }
+        
+        let combined = selected.join("\n\n");
+        if combined.len() > max_chars {
+            combined.chars().take(max_chars).collect()
+        } else {
+            combined
+        }
     }
 
     pub async fn is_indexing(&self) -> bool {
@@ -598,6 +647,22 @@ impl Indexer {
         
         self.storage.add_file(&file_metadata, None).await?;
         Ok(())
+    }
+
+    /// Check if a file's extension is in the user's excluded extensions list (from config).
+    /// Normalizes extension comparison: "mca" and ".mca" both match .mca files.
+    pub(crate) fn is_excluded_by_config(&self, file_path: &str) -> bool {
+        let ext = PathBuf::from(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if ext.is_empty() {
+            return false;
+        }
+        self.config.file_type_filters.excluded_extensions.iter().any(|e| {
+            e.trim_start_matches('.').to_lowercase() == ext
+        })
     }
 
     /// Check if a file should be excluded from indexing due to high false positive rates
@@ -683,7 +748,9 @@ impl Indexer {
                      // println!("[STARTUP] Checking: {}", file_path); 
                      
                      if Self::should_exclude_file(&file_path) {
-                         // println!("[STARTUP] Excluded: {}", file_path);
+                         continue;
+                     }
+                     if self.is_excluded_by_config(&file_path) {
                          continue;
                      }
                      

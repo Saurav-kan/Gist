@@ -183,7 +183,9 @@ impl ParserRegistry {
         
         Self { 
             parsers,
-            excluded_extensions: config.excluded_extensions.iter().map(|s| s.to_lowercase()).collect(),
+            excluded_extensions: config.excluded_extensions.iter()
+                .map(|s| s.trim_start_matches('.').to_lowercase())
+                .collect(),
         }
     }
 
@@ -198,7 +200,7 @@ impl ParserRegistry {
             .unwrap_or("")
             .to_lowercase();
         
-        self.excluded_extensions.iter().any(|e| e == &ext)
+        self.excluded_extensions.iter().any(|e| e.trim_start_matches('.').to_lowercase() == ext)
     }
 
     pub fn extract_text(&self, file_path: &str) -> Result<String> {

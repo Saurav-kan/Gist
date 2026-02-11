@@ -60,6 +60,10 @@ impl FileWatcher {
                             if Indexer::should_exclude_file(path_str) {
                                 continue;
                             }
+                            // Skip user-excluded extensions
+                            if indexer.is_excluded_by_config(path_str) {
+                                continue;
+                            }
                             
                             if let Err(e) = indexer.index_file(path_str).await {
                                 eprintln!("Error auto-indexing {}: {}", path_str, e);

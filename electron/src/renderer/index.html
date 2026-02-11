@@ -286,10 +286,10 @@
                         id="similarity-slider"
                         min="0"
                         max="100"
-                        value="30"
+                        value="25"
                         class="slider"
                       />
-                      <span class="similarity-display" id="similarity-value">30%</span>
+                      <span class="similarity-display" id="similarity-value">25%</span>
                     </div>
                   </div>
 
@@ -587,15 +587,22 @@
                     <label for="excluded-extensions-input" class="control-label">
                       Global Excluded Extensions
                     </label>
-                    <input 
-                      type="text" 
-                      id="excluded-extensions-input" 
-                      class="modern-input" 
-                      placeholder="e.g. log, tmp, exe, bak"
-                    >
+                    <div class="excluded-extensions-chips-wrapper">
+                      <div class="excluded-extensions-input-row">
+                        <input 
+                          type="text" 
+                          id="excluded-extensions-input" 
+                          class="modern-input" 
+                          placeholder="Type extension and press Enter (e.g. log, tmp)"
+                          autocomplete="off"
+                        >
+                        <button type="button" id="excluded-extensions-add-btn" class="btn-secondary" title="Add">Add</button>
+                      </div>
+                      <div id="excluded-extensions-chips" class="excluded-extensions-chips"></div>
+                    </div>
                   </div>
                   <p class="setting-caption">
-                    Comma-separated list of extensions to ignore during indexing and search results
+                    Extensions to ignore during indexing and search results. Press Enter or click Add to add each one.
                   </p>
                   
                   <!-- Advanced Action Search Options -->
@@ -835,9 +842,15 @@
           <!-- Desktop Page -->
           <section id="desktop-page" class="page">
             <div class="page-header">
-              <div class="page-title">
+              <div class="folder-header-left">
+                <button id="folder-back-desktop" class="folder-back-btn" data-file-list="desktop-file-list" data-page-type="desktop" title="Back" style="display: none">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  Back
+                </button>
+                <div class="page-title">
                 <h1>Desktop</h1>
                 <p>Browse files on your desktop</p>
+                </div>
               </div>
               <div class="view-controls">
                 <div class="sort-controls">
@@ -987,9 +1000,15 @@
           <!-- Downloads Page -->
           <section id="downloads-page" class="page">
             <div class="page-header">
-              <div class="page-title">
+              <div class="folder-header-left">
+                <button id="folder-back-downloads" class="folder-back-btn" data-file-list="downloads-file-list" data-page-type="downloads" title="Back" style="display: none">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  Back
+                </button>
+                <div class="page-title">
                 <h1>Downloads</h1>
                 <p>Browse files in your Downloads folder</p>
+                </div>
               </div>
               <div class="view-controls">
                 <div class="sort-controls">
@@ -1095,9 +1114,15 @@
           <!-- Documents Page -->
           <section id="documents-page" class="page">
             <div class="page-header">
-              <div class="page-title">
+              <div class="folder-header-left">
+                <button id="folder-back-documents" class="folder-back-btn" data-file-list="documents-file-list" data-page-type="documents" title="Back" style="display: none">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  Back
+                </button>
+                <div class="page-title">
                 <h1>Documents</h1>
                 <p>Browse files in your Documents folder</p>
+                </div>
               </div>
               <div class="view-controls">
                 <div class="sort-controls">
@@ -1203,9 +1228,15 @@
           <!-- Other Files Page -->
           <section id="other-files-page" class="page">
             <div class="page-header">
-              <div class="page-title">
+              <div class="folder-header-left">
+                <button id="folder-back-other-files" class="folder-back-btn" data-file-list="other-files-file-list" data-page-type="other-files" title="Back" style="display: none">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  Back
+                </button>
+                <div class="page-title">
                 <h1>Other Files</h1>
                 <p>Browse other files and folders</p>
+                </div>
               </div>
               <div class="view-controls">
                 <div class="view-toggle">

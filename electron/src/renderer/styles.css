@@ -318,6 +318,32 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
+.folder-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.folder-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.folder-back-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
 .page-title h1 {
   font-size: 1.5rem;
   font-weight: 600;
@@ -879,7 +905,17 @@ body {
   min-width: 0; /* Allow text truncation */
 }
 
-/* Indexing Page Specifics */
+/* Indexing Page Specifics - only apply when active so .page { display: none } works */
+#indexing-page.active {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+#indexing-page .settings-grid {
+  flex: 1;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
@@ -1364,6 +1400,43 @@ body {
   text-align: center;
   word-break: break-word;
   width: 100%;
+}
+
+/* File context menu (right-click) */
+.file-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 180px;
+  padding: 0.25rem 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  font-size: 0.875rem;
+}
+
+.file-context-menu .context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: none;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.file-context-menu .context-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.file-context-menu .context-menu-separator {
+  height: 1px;
+  margin: 0.25rem 0;
+  background: var(--border-color);
 }
 
 .browser-file-info {
@@ -2737,6 +2810,63 @@ body {
   gap: 0.75rem;
 }
 
+.excluded-extensions-chips-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.excluded-extensions-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.excluded-extensions-input-row .modern-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.excluded-extensions-input-row .btn-secondary {
+  flex-shrink: 0;
+}
+
+.excluded-extensions-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.excluded-extension-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.excluded-extension-chip-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.excluded-extension-chip-remove:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
 .provider-panel {
   padding-top: 1.5rem;
   border-top: 1px dashed var(--border-color);
@@ -2860,9 +2990,7 @@ body {
 }
 
 .settings-footer {
-  position: sticky;
-  bottom: 0;
-  margin-top: 2rem;
+  margin-top: auto;
   padding: 1.5rem 2rem;
   background: var(--bg-page);
   border-top: 1px solid var(--border-color);
@@ -2871,8 +2999,13 @@ body {
   justify-content: space-between;
   gap: 2rem;
   z-index: 10;
-  /* Ensure it's hidden when parent page is not active */
-  visibility: inherit;
+  flex-shrink: 0;
+  margin-bottom: -2rem;
+  margin-left: -2rem;
+  margin-right: -2rem;
+  padding-left: 2rem;
+  padding-right: 2rem;
+  padding-bottom: calc(1.5rem + 2rem);
 }
 
 /* Active RAG Styles */
